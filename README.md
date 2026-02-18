@@ -401,6 +401,21 @@ Evaluation uses a lighter, more generic prompt than Stage 1 scoring. Stage 1 use
 
 The ±0.20 threshold now serves as a classification boundary (target_pass vs target_coarse_pass), not a rejection gate. Target_coarse_pass pairs (72,639 — 60% of the dataset) have valid contrastive signal on the target dimension but noisier non-target behavior. Downstream DPO training may want to weight these differently or filter by label — the label field on every pair enables this without re-running the pipeline. The 8,358 flip_pass pairs (1,042 global + 7,316 targeted) carry reversed contrastive direction; multicultural accounts for 7,636 of these. These should be monitored for training stability, especially mu_cultural_value where 57% of targeted variants flipped.
 
+**Margin threshold sensitivity.** The 0.20 margin threshold affects domains unevenly. The percentage of accepted pairs lost at each threshold (margin ≤ threshold → rejected):
+
+| Threshold | Coherence | Commonsense | Empathy | Multicultural |
+|:-:|---:|---:|---:|---:|
+| 0.10 | 3.8% | 2.2% | 0.5% | 15.2% |
+| 0.15 | 4.7% | 2.4% | 0.9% | 24.4% |
+| **0.20** | **7.5%** | **3.3%** | **1.9%** | **33.9%** |
+| 0.25 | 10.5% | 5.1% | 2.2% | 54.8% |
+| 0.30 | 12.8% | 5.6% | 3.4% | 59.8% |
+| 0.40 | 23.0% | 15.5% | 8.0% | 78.2% |
+| 0.50 | 32.5% | 23.3% | 13.7% | 87.6% |
+| 0.60 | 46.2% | 43.7% | 22.2% | 94.4% |
+
+Multicultural is the fragile domain (median margin 0.25) — raising the threshold to 0.25 eliminates over half its pairs. Empathy and commonsense are robust (median margins 0.80 and 0.65) because variants produce large score shifts, so even a 0.40 threshold loses under 16%. Coherence sits in between (median 0.65). The threshold can be raised safely for all domains except multicultural.
+
 
 ## File Structure
 
