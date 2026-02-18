@@ -1,0 +1,11 @@
+# dotfiles and dotfolders
+.*
+!.gitignore
+
+# data (too large for git, use external storage)
+data/
+
+# python
+__pycache__/
+*.pyc
+*.egg-info/
