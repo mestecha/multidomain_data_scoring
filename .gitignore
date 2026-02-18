@@ -4,6 +4,7 @@
 
 # data (too large for git, use external storage)
 data/
+data.zip
 
 # python
 __pycache__/

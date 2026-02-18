@@ -276,15 +276,15 @@ The 25 eval shards (124,804 entries) were submitted to the Azure batch API with 
 
 | Domain | global_pass | target_pass | target_coarse_pass | global_flip_pass | target_flip_pass | reject | **Usable** |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Empathy | 9,524 | 472 | 18,499 | 19 | 143 | — | **28,657** |
-| Coherence | 9,228 | 5,898 | 12,793 | 173 | 187 | — | **28,279** |
-| Multicultural | 8,227 | 6,139 | 4,150 | 850 | 6,786 | — | **26,152** |
-| Commonsense | 0 | 1,007 | 37,197 | 0 | 200 | — | **38,404** |
+| Empathy | 9,524 | 472 | 18,499 | 19 | 143 | 19 | **28,657** |
+| Coherence | 9,228 | 5,898 | 12,793 | 173 | 187 | 473 | **28,279** |
+| Multicultural | 8,227 | 6,139 | 4,150 | 850 | 6,786 | 2,673 | **26,152** |
+| Commonsense | 0 | 1,007 | 37,197 | 0 | 200 | 143 | **38,404** |
 | **Total** | **26,979** | **13,516** | **72,639** | **1,042** | **7,316** | **3,308** | **121,492** |
 
-Rejects total 3,308 (2.7% of 124,800). The remaining 4 variants had no eval result (parse failures during generation).
+Rejects total 3,308 (2.7% of 124,800). Multicultural accounts for 81% of all rejects (2,673) — the evaluator perceives smaller cultural quality differences than the generator intended, so more variants fall below the 0.20 margin threshold. Empathy has the fewest rejects (19, 0.07%) because variants produce massive score shifts. The remaining 4 variants (124,804 eval entries − 124,800 classified) had no eval result due to generation parse failures.
 
-**Yield improvement: 32.4% → 97.3%.** The old binary system rejected 84,305 variants; the new system recovers 81,001 of those as usable pairs. The gain comes from two sources: target_coarse_pass (72,639 variants where the target moved correctly but non-targets co-moved) and flip_pass (8,358 variants where scores moved opposite to intended, producing valid pairs with swapped chosen/rejected).
+**Yield improvement: 32.4% → 97.3%.** The old binary system rejected 84,305 variants; the new system recovers 81,001 of those as usable pairs. The gain comes from two sources: target_coarse_pass (72,639 variants where the target moved correctly but non-targets co-moved) and flip_pass (8,358 variants where scores moved opposite to intended, producing valid pairs with swapped chosen/rejected). The recovery is most dramatic for commonsense: under the old binary system, 97% of commonsense variants would have been rejected because targeting 1 of 4 characterizing dims inevitably moves the other 3 beyond ±0.20. The new system classifies these as target_coarse_pass instead of rejecting them, keeping 38,404 of 38,547 evaluated commonsense variants (99.6%).
 
 **By variant type:**
 
@@ -312,7 +312,7 @@ Rejects total 3,308 (2.7% of 124,800). The remaining 4 variants had no eval resu
 | cs_reaction | 234 | 9,274 | 104 | 9,612 |
 | **Total** | **13,516** | **72,639** | **7,316** | **93,471** |
 
-Empathy and commonsense dimensions recover at 97–99% thanks to target_coarse_pass. The old system rejected these because non-targets co-moved — the new system correctly recognizes that the target dimension did move, and classifies the co-movement rather than rejecting it.
+Empathy and commonsense dimensions have near-total recovery (99.9% and 99.6% respectively) because their variants produce large score shifts — the target dimension consistently moves well beyond 0.20. The few rejects are variants where the target barely moved in either direction. The target_coarse_pass label dominates both domains (empathy 64%, commonsense 97%) because targeting one dimension inevitably shifts correlated dimensions beyond ±0.20 — behavior the old binary system rejected but the new system correctly classifies.
 
 Multicultural mu_cultural_value has massive target_flip_pass (5,222 / 9,091 = 57%) — variants often moved cultural value in the opposite direction from intended. These produce valid pairs with swapped chosen/rejected and flipped contrastive direction. mu_cultural_specificity has 1,564 flip passes (20%). This domain-specific flip behavior is the main contributor to the 7,316 total target_flip_pass count.
 
