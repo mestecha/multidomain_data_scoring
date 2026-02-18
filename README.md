@@ -235,7 +235,7 @@ The 12 content-filtered entries come from 5 source dialogues:
 | S1D-021253 | empathy | 1 | sexual:high |
 | S1D-031655 | commonsense | 3 | sexual:high |
 
-All 12 failures are content-inherent — the source dialogues contain content that Azure's safety filter rejects. These cannot be recovered through retry and represent an irrecoverable 0.01% loss. The affected 5 dialogues (out of 38,447) will simply have fewer variants available for evaluation. From a DPO training perspective, losing 12 candidates out of 124,967 has no measurable impact on dataset quality or balance.
+All 12 failures are content-inherent — the source dialogues contain content that Azure's safety filter rejects. These cannot be recovered through retry and represent an irrecoverable 0.01% loss. The affected 6 dialogues (out of 38,447) will simply have fewer variants available for evaluation. From a DPO training perspective, losing 12 candidates out of 124,967 has no measurable impact on dataset quality or balance.
 
 The 124,955 successful generation outputs are stored in `data/stage_2/shards/output/` across 26 JSONL files (22 from round 1 + 3 from round 2 + 1 recovered file with the 12 Opus-generated replacements).
 
@@ -282,7 +282,7 @@ The 25 eval shards (124,804 entries) were submitted to the Azure batch API with 
 | Commonsense | 0 | 1,007 | 37,197 | 0 | 200 | 143 | **38,404** |
 | **Total** | **26,979** | **13,516** | **72,639** | **1,042** | **7,316** | **3,308** | **121,492** |
 
-Rejects total 3,308 (2.7% of 124,800). Multicultural accounts for 81% of all rejects (2,673) — the evaluator perceives smaller cultural quality differences than the generator intended, so more variants fall below the 0.20 margin threshold. Empathy has the fewest rejects (19, 0.07%) because variants produce massive score shifts. The remaining 4 variants (124,804 eval entries − 124,800 classified) had no eval result due to generation parse failures.
+Rejects total 3,308 (2.7% of 124,800). Multicultural accounts for 81% of all rejects (2,673) — the evaluator perceives smaller cultural quality differences than the generator intended, so more variants fall below the 0.20 margin threshold. Empathy has the fewest rejects (19, 0.07%) because variants produce massive score shifts. The remaining 4 variants (124,804 eval entries − 124,800 classified) were submitted to eval but received no result from the batch API.
 
 **Yield improvement: 32.4% → 97.3%.** The old binary system rejected 84,305 variants; the new system recovers 81,001 of those as usable pairs. The gain comes from two sources: target_coarse_pass (72,639 variants where the target moved correctly but non-targets co-moved) and flip_pass (8,358 variants where scores moved opposite to intended, producing valid pairs with swapped chosen/rejected). The recovery is most dramatic for commonsense: under the old binary system, 97% of commonsense variants would have been rejected because targeting 1 of 4 characterizing dims inevitably moves the other 3 beyond ±0.20. The new system classifies these as target_coarse_pass instead of rejecting them, keeping 38,404 of 38,547 evaluated commonsense variants (99.6%).
 
