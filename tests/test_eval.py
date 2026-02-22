@@ -312,6 +312,36 @@ class TestEvalPromptCulturalContext:
 
         assert "builds upon the shared prefix" in prompt
 
+    def test_multicultural_eval_cultural_context_before_instructions(self) -> None:
+        metadata = {
+            "country_1": "Japan",
+            "country_2": "United States",
+            "demographics_1": "Age 30, male",
+            "demographics_2": "Age 25, female",
+            "statement_original": "Respect for elders",
+            "statement_cultural": "Cultural respect",
+            "situation": "Business meeting",
+            "cultural_reasoning_1": "Japanese reasoning",
+            "cultural_reasoning_2": "American reasoning",
+            "arousal_reasoning": "Moderate tension",
+            "arousal_score": "3",
+            "social_norms_1": "Bow when greeting",
+            "social_norms_2": "Handshake",
+            "prejudices_1": "Stereotypes about US",
+            "prejudices_2": "Stereotypes about Japan",
+        }
+        config = DOMAINS[DomainName.MULTICULTURAL]
+        prompt = build_eval_prompt(
+            prefix_messages=[Message(role="user", content="Hello")],
+            variant_continuation=[Message(role="assistant", content="Hey")],
+            config=config,
+            domain_metadata=metadata,
+        )
+
+        cultural_idx = prompt.find("CULTURAL CONTEXT")
+        instructions_idx = prompt.find("INSTRUCTIONS:")
+        assert cultural_idx < instructions_idx
+
     def test_eval_prompt_includes_all_domain_dims(self) -> None:
         """eval prompt should include ALL domain dims, not just characterizing."""
         config = DOMAINS[DomainName.COMMONSENSE]

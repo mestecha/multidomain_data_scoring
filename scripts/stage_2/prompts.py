@@ -28,7 +28,7 @@ ORIGINAL CONTINUATION (to improve):
 
 SCORING RUBRIC - improve ALL of these dimensions:
 {rubric}
-
+{score_context}
 INSTRUCTIONS:
 - Write exactly {turn_count} turn(s) as the improved continuation.
 - Keep the same speaker roles and general topic.
@@ -52,7 +52,7 @@ ORIGINAL CONTINUATION (to degrade):
 
 SCORING RUBRIC - weaken ALL of these dimensions:
 {rubric}
-
+{score_context}{non_char_constraint}
 INSTRUCTIONS:
 - Write exactly {turn_count} turn(s) as the degraded continuation.
 - Keep the same speaker roles and general topic.
@@ -182,6 +182,73 @@ COMMONSENSE_GENERATION_GUIDANCE: dict[str, dict[str, str]] = {
 }
 
 
+# ── Coherence generation guidance ────────────────────────────────────────
+
+COHERENCE_GENERATION_GUIDANCE: dict[str, dict[str, str]] = {
+    "co_topic_coherence": {
+        "improve": (
+            "- Keep all turns on the same topic thread without introducing new subjects\n"
+            "- Use referential links back to earlier turns (e.g., 'As you mentioned...')\n"
+            "- Transition between sub-topics with explicit connective language"
+        ),
+        "degrade": (
+            "- Introduce slight topic drift that feels natural but loses the thread\n"
+            "- Reduce explicit references to earlier turns\n"
+            "- Let sub-topic transitions happen without clear connective language"
+        ),
+    },
+    "co_logical_consistency": {
+        "improve": (
+            "- Ensure all claims are compatible with previously stated facts\n"
+            "- Make reasoning steps explicit and logically sound\n"
+            "- Resolve any apparent contradictions with clarifying context"
+        ),
+        "degrade": (
+            "- Introduce subtle factual tensions with earlier statements\n"
+            "- Leave reasoning gaps that require inference to notice\n"
+            "- Allow minor contradictions that a careful reader would catch"
+        ),
+    },
+}
+
+
+# ── Empathy generation guidance ─────────────────────────────────────────
+
+EMPATHY_GENERATION_GUIDANCE: dict[str, dict[str, str]] = {
+    "em_emotional_awareness": {
+        "improve": (
+            "- Name the speaker's emotion explicitly in the response\n"
+            "- Acknowledge both the event and its emotional impact\n"
+            "- Avoid immediately pivoting to advice before acknowledging the feeling"
+        ),
+        "degrade": (
+            "- Acknowledge the situation but miss the underlying emotion slightly\n"
+            "- Move to practical advice a bit too quickly\n"
+            "- Use slightly generic emotional language instead of specific recognition"
+        ),
+    },
+    "em_perspective_taking": {
+        "improve": (
+            "- Show understanding of why the speaker feels the way they do\n"
+            "- Reference the speaker's specific circumstances, not generic advice\n"
+            "- Demonstrate that you can see the situation from their point of view"
+        ),
+        "degrade": (
+            "- Respond with slightly generic understanding that could apply to anyone\n"
+            "- Miss subtle aspects of the speaker's specific situation\n"
+            "- Offer perspective that is reasonable but not quite tuned to their experience"
+        ),
+    },
+}
+
+
+DOMAIN_GENERATION_GUIDANCE: dict[DomainName, dict[str, dict[str, str]]] = {
+    DomainName.COMMONSENSE: COMMONSENSE_GENERATION_GUIDANCE,
+    DomainName.COHERENCE: COHERENCE_GENERATION_GUIDANCE,
+    DomainName.EMPATHY: EMPATHY_GENERATION_GUIDANCE,
+}
+
+
 # ── Multicultural context templates ───────────────────────────────────────
 
 MULTICULTURAL_GENERATION_CONTEXT = """\
@@ -246,6 +313,38 @@ def _build_rubric(config: DomainConfig, target_dims: list[str]) -> str:
     return "\n".join(lines) if lines else "(no specific dimensions)"
 
 
+def _build_score_context(
+    dims: list[str],
+    scores: dict[str, float],
+    direction: ContrastiveDirection,
+) -> str:
+    """Build CURRENT SCORES block with direction-aware magnitude guidance."""
+    is_improve = direction == ContrastiveDirection.POSITIVE
+    lines = []
+    for dim in dims:
+        if dim not in scores:
+            continue
+        score = scores[dim]
+        if is_improve:
+            if score <= 0.3:
+                mag = "The current score is low. Make a substantial change."
+            elif score <= 0.6:
+                mag = "The current score is moderate. Make a clear improvement."
+            else:
+                mag = "The current score is already high. Make a refined, subtle improvement."
+        else:
+            if score >= 0.7:
+                mag = "The current score is high. Make a substantial change."
+            elif score >= 0.4:
+                mag = "The current score is moderate. Make a clear degradation."
+            else:
+                mag = "The current score is already low. Make a minimal, subtle change."
+        lines.append(f"  {dim} [current score: {score:.2f}] — {mag}")
+    if not lines:
+        return ""
+    return "\nCURRENT SCORES:\n" + "\n".join(lines)
+
+
 def _build_score_keys(config: DomainConfig) -> str:
     keys = []
     for dim_def in config.dimensions:
@@ -286,10 +385,31 @@ def build_generation_prompt(
     direction_verb_ing = "improving" if direction_verb == "improve" else "degrading"
     target_dims_str = ", ".join(candidate.target_dimensions)
 
+    # ── Non-characterizing dim constraint for global degrade ──
+    non_char_constraint = ""
+    if candidate.variant_type == VariantType.GLOBAL_DEGRADE:
+        non_char_dims = [
+            f"{config.prefix}_{d.name}"
+            for d in config.dimensions
+            if not d.is_characterizing
+            and f"{config.prefix}_{d.name}" not in candidate.target_dimensions
+        ]
+        if non_char_dims:
+            non_char_constraint = (
+                "\nDIMENSIONS NOT LISTED ABOVE — keep these at their current level:\n- "
+                + ", ".join(non_char_dims)
+            )
+
+    # ── Score context (all variant types) ──
+    score_context = _build_score_context(
+        candidate.target_dimensions,
+        candidate.characterizing_scores,
+        candidate.contrastive_direction,
+    )
+
     # ── Dimension-targeted enrichments ──
     non_target_constraint = ""
     subtlety_constraint = ""
-    score_context = ""
 
     if candidate.variant_type == VariantType.DIMENSION_TARGETED:
         # non-target dims with descriptions
@@ -318,25 +438,6 @@ def build_generation_prompt(
                 "or incoherent text.\n"
             )
 
-        # score context
-        score_lines = []
-        for td in candidate.target_dimensions:
-            if td in candidate.characterizing_scores:
-                score = candidate.characterizing_scores[td]
-                if score <= 0.4:
-                    magnitude = "The current score is low. Make a substantial change."
-                elif score >= 0.7:
-                    magnitude = "The current score is high. Make a subtle change."
-                else:
-                    magnitude = "The current score is moderate."
-                score_lines.append(
-                    f"  {td} [current score: {score:.2f}] — {magnitude}"
-                )
-        if score_lines:
-            score_context = (
-                "\nCURRENT SCORES:\n" + "\n".join(score_lines)
-            )
-
     template_map = {
         VariantType.GLOBAL_IMPROVE: GLOBAL_IMPROVE_TEMPLATE,
         VariantType.GLOBAL_DEGRADE: GLOBAL_DEGRADE_TEMPLATE,
@@ -357,16 +458,18 @@ def build_generation_prompt(
         non_target_constraint=non_target_constraint,
         subtlety_constraint=subtlety_constraint,
         score_context=score_context,
+        non_char_constraint=non_char_constraint,
     )
 
-    # inject commonsense generation guidance for dimension-targeted variants
+    # inject generation guidance for dimension-targeted variants
+    domain_guidance = DOMAIN_GENERATION_GUIDANCE.get(config.name)
     if (
-        config.name == DomainName.COMMONSENSE
+        domain_guidance
         and candidate.variant_type == VariantType.DIMENSION_TARGETED
         and candidate.target_dimensions
     ):
         target_dim = candidate.target_dimensions[0]
-        guidance_entry = COMMONSENSE_GENERATION_GUIDANCE.get(target_dim)
+        guidance_entry = domain_guidance.get(target_dim)
         if guidance_entry:
             guidance_text = guidance_entry.get(direction_verb, "")
             if guidance_text:
@@ -374,7 +477,7 @@ def build_generation_prompt(
                     f"\n\nGENERATION GUIDANCE for {target_dim}:\n{guidance_text}\n"
                 )
 
-    # inject multicultural generation context
+    # inject multicultural generation context (before instructions)
     if (
         config.name == DomainName.MULTICULTURAL
         and domain_metadata
@@ -385,7 +488,13 @@ def build_generation_prompt(
             direction_qualifier=direction_qualifier,
             **domain_metadata,
         )
-        prompt = prompt + cultural_context
+        # Insert before INSTRUCTIONS block
+        instructions_marker = "\nINSTRUCTIONS:"
+        idx = prompt.find(instructions_marker)
+        if idx != -1:
+            prompt = prompt[:idx] + cultural_context + prompt[idx:]
+        else:
+            prompt = prompt + cultural_context
 
     return prompt
 
@@ -414,12 +523,17 @@ def build_eval_prompt(
         score_keys=score_keys,
     )
 
-    # inject multicultural eval context
+    # inject multicultural eval context (before instructions)
     if (
         config.name == DomainName.MULTICULTURAL
         and domain_metadata
     ):
         cultural_context = MULTICULTURAL_VERIFICATION_CONTEXT.format(**domain_metadata)
-        prompt = prompt + cultural_context
+        instructions_marker = "\nINSTRUCTIONS:"
+        idx = prompt.find(instructions_marker)
+        if idx != -1:
+            prompt = prompt[:idx] + cultural_context + prompt[idx:]
+        else:
+            prompt = prompt + cultural_context
 
     return prompt
