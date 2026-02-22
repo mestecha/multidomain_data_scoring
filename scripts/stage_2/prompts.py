@@ -35,7 +35,7 @@ INSTRUCTIONS:
 - Make the continuation clearly better on every dimension above.
 - Output ONLY the rewritten continuation turns as JSON:
 
-{{"continuation": [{{"role": "user"|"assistant", "content": "..."}}]}}
+{{"continuation": [{{"role": "user", "content": "..."}}, {{"role": "assistant", "content": "..."}}]}}
 """
 
 GLOBAL_DEGRADE_TEMPLATE = """\
@@ -58,9 +58,12 @@ INSTRUCTIONS:
 - Keep the same speaker roles and general topic.
 - Make the continuation clearly worse on every dimension above.
 - The result should still be a plausible dialogue, not gibberish.
+- The degradation should be subtle and natural-sounding, not obvious. \
+A reasonable reader should need to think carefully to identify why the continuation is worse.
+- Avoid abrupt non-sequiturs, obviously rude responses, or incoherent text.
 - Output ONLY the rewritten continuation turns as JSON:
 
-{{"continuation": [{{"role": "user"|"assistant", "content": "..."}}]}}
+{{"continuation": [{{"role": "user", "content": "..."}}, {{"role": "assistant", "content": "..."}}]}}
 """
 
 DIMENSION_TARGETED_TEMPLATE = """\
@@ -69,7 +72,7 @@ You are an expert dialogue writer specializing in {domain} quality.
 Below is a multi-turn dialogue. Your task is to specifically \
 {direction_verb} the following dimensions: {target_dims_str}, \
 while keeping other aspects similar.
-
+{non_target_constraint}
 SHARED PREFIX (do not modify):
 {prefix_text}
 
@@ -78,18 +81,19 @@ ORIGINAL CONTINUATION (to modify):
 
 TARGET DIMENSIONS to {direction_verb}:
 {rubric}
-
+{score_context}
 INSTRUCTIONS:
 - Write exactly {turn_count} turn(s) as the modified continuation.
 - Keep the same speaker roles and general topic.
 - Focus changes on the target dimensions listed above.
+{subtlety_constraint}\
 - Output ONLY the rewritten continuation turns as JSON:
 
-{{"continuation": [{{"role": "user"|"assistant", "content": "..."}}]}}
+{{"continuation": [{{"role": "user", "content": "..."}}, {{"role": "assistant", "content": "..."}}]}}
 """
 
 
-# ── Verification template ─────────────────────────────────────────────────
+# ── Eval template ─────────────────────────────────────────────────────────
 
 EVAL_TEMPLATE = """\
 You are an expert dialogue evaluator for {domain} quality.
@@ -106,8 +110,17 @@ CONTINUATION:
 DIMENSIONS TO SCORE (0.0 to 1.0 each):
 {rubric}
 
+SCORING ANCHORS:
+0.0-0.2: Severely deficient — criterion almost entirely absent
+0.3-0.4: Weak — criterion present but poorly executed
+0.5-0.6: Adequate — criterion meets basic expectations
+0.7-0.8: Good — criterion clearly and consistently satisfied
+0.9-1.0: Excellent — criterion exemplary, difficult to improve
+
 INSTRUCTIONS:
-- Score the continuation on each dimension.
+- Before scoring, consider how the continuation responds to and builds upon \
+the shared prefix. Score each dimension considering both the prefix and the \
+continuation together.
 - Use the full 0.0-1.0 range.
 - Output ONLY valid JSON:
 
@@ -125,9 +138,9 @@ COMMONSENSE_GENERATION_GUIDANCE: dict[str, dict[str, str]] = {
             "- Make prerequisites and consequences explicit and logical"
         ),
         "degrade": (
-            "- Violate temporal ordering (effect before cause)\n"
-            "- Introduce impossible prerequisites\n"
-            "- Break causal chains so consequences don't follow from actions"
+            "- Use causal language but connect wrong events\n"
+            "- Introduce slightly implausible prerequisites\n"
+            "- Make causal chains subtly off so consequences feel questionable"
         ),
     },
     "cs_consistency": {
@@ -137,9 +150,9 @@ COMMONSENSE_GENERATION_GUIDANCE: dict[str, dict[str, str]] = {
             "- Ensure actions align with the speaker's apparent personality and role"
         ),
         "degrade": (
-            "- Introduce character inconsistencies (contradict earlier statements)\n"
-            "- Violate established facts about the situation\n"
-            "- Have speakers act against their established personality or knowledge"
+            "- Introduce subtle inconsistencies that require careful reading to notice\n"
+            "- Slightly bend established facts about the situation\n"
+            "- Have speakers act in ways that feel slightly off for their character"
         ),
     },
     "cs_reaction": {
@@ -149,9 +162,9 @@ COMMONSENSE_GENERATION_GUIDANCE: dict[str, dict[str, str]] = {
             "- Match reaction intensity to the significance of the event"
         ),
         "degrade": (
-            "- Make emotional reactions inappropriate (laugh at tragedy, ignore good news)\n"
-            "- Omit expected emotional responses to significant events\n"
-            "- Mismatch reaction intensity with event significance"
+            "- Make emotional reactions slightly off — a bit too muted or intense\n"
+            "- Underplay or slightly miss expected emotional responses\n"
+            "- Have reaction intensity subtly mismatched with event significance"
         ),
     },
     "cs_desire": {
@@ -161,9 +174,9 @@ COMMONSENSE_GENERATION_GUIDANCE: dict[str, dict[str, str]] = {
             "- Ensure actions logically follow from stated intentions"
         ),
         "degrade": (
-            "- Introduce illogical or contradictory motivations\n"
-            "- Have goals misaligned with what the character would realistically want\n"
-            "- Make actions that don't follow from any stated or implied intention"
+            "- Make motivations slightly misaligned with the situation\n"
+            "- Have goals that are plausible but not quite right for the character\n"
+            "- Make actions that loosely follow intentions but feel slightly off"
         ),
     },
 }
@@ -197,7 +210,7 @@ How {country_2} may perceive {country_1}: {prejudices_2}
 Emotional dynamics: {arousal_reasoning}
 
 When {direction_verb_ing} the continuation, use these cultural elements to make your \
-rewrite more (or less) culturally grounded, specific, and authentic.
+rewrite {direction_qualifier} culturally grounded, specific, and authentic.
 """
 
 MULTICULTURAL_VERIFICATION_CONTEXT = """\
@@ -273,6 +286,57 @@ def build_generation_prompt(
     direction_verb_ing = "improving" if direction_verb == "improve" else "degrading"
     target_dims_str = ", ".join(candidate.target_dimensions)
 
+    # ── Dimension-targeted enrichments ──
+    non_target_constraint = ""
+    subtlety_constraint = ""
+    score_context = ""
+
+    if candidate.variant_type == VariantType.DIMENSION_TARGETED:
+        # non-target dims with descriptions
+        non_target_dims = [
+            d for d in config.characterizing_dims
+            if d not in candidate.target_dimensions
+        ]
+        if non_target_dims:
+            lines = []
+            for dim_def in config.dimensions:
+                prefixed = f"{config.prefix}_{dim_def.name}"
+                if prefixed in non_target_dims:
+                    lines.append(f"  - {prefixed}: {dim_def.description}")
+            non_target_constraint = (
+                "\nNON-TARGET DIMENSIONS — do NOT change these:\n"
+                + "\n".join(lines)
+            )
+
+        # subtlety for degrade
+        if candidate.contrastive_direction == ContrastiveDirection.NEGATIVE:
+            subtlety_constraint = (
+                "- The degradation should be subtle and natural-sounding, not obvious. "
+                "A reasonable reader should need to think carefully to identify why "
+                "the continuation is worse.\n"
+                "- Avoid abrupt non-sequiturs, obviously rude responses, "
+                "or incoherent text.\n"
+            )
+
+        # score context
+        score_lines = []
+        for td in candidate.target_dimensions:
+            if td in candidate.characterizing_scores:
+                score = candidate.characterizing_scores[td]
+                if score <= 0.4:
+                    magnitude = "The current score is low. Make a substantial change."
+                elif score >= 0.7:
+                    magnitude = "The current score is high. Make a subtle change."
+                else:
+                    magnitude = "The current score is moderate."
+                score_lines.append(
+                    f"  {td} [current score: {score:.2f}] — {magnitude}"
+                )
+        if score_lines:
+            score_context = (
+                "\nCURRENT SCORES:\n" + "\n".join(score_lines)
+            )
+
     template_map = {
         VariantType.GLOBAL_IMPROVE: GLOBAL_IMPROVE_TEMPLATE,
         VariantType.GLOBAL_DEGRADE: GLOBAL_DEGRADE_TEMPLATE,
@@ -290,11 +354,15 @@ def build_generation_prompt(
         direction_verb=direction_verb,
         direction_verb_cap=direction_verb_cap,
         target_dims_str=target_dims_str,
+        non_target_constraint=non_target_constraint,
+        subtlety_constraint=subtlety_constraint,
+        score_context=score_context,
     )
 
-    # inject commonsense generation guidance for single-dim targeting
+    # inject commonsense generation guidance for dimension-targeted variants
     if (
         config.name == DomainName.COMMONSENSE
+        and candidate.variant_type == VariantType.DIMENSION_TARGETED
         and candidate.target_dimensions
     ):
         target_dim = candidate.target_dimensions[0]
@@ -311,8 +379,10 @@ def build_generation_prompt(
         config.name == DomainName.MULTICULTURAL
         and domain_metadata
     ):
+        direction_qualifier = "more" if direction_verb == "improve" else "less"
         cultural_context = MULTICULTURAL_GENERATION_CONTEXT.format(
             direction_verb_ing=direction_verb_ing,
+            direction_qualifier=direction_qualifier,
             **domain_metadata,
         )
         prompt = prompt + cultural_context

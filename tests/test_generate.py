@@ -197,7 +197,17 @@ class TestGenerationPrompt:
         prompt = build_generation_prompt(candidate, turn_count=1, config=config)
 
         assert "GENERATION GUIDANCE" in prompt
-        assert "inappropriate" in prompt.lower()
+        assert "slightly off" in prompt.lower()
+
+    def test_commonsense_global_no_generation_guidance(self) -> None:
+        candidate = _make_candidate(
+            domain=DomainName.COMMONSENSE,
+            variant_type=VariantType.GLOBAL_IMPROVE,
+        )
+        config = DOMAINS[DomainName.COMMONSENSE]
+        prompt = build_generation_prompt(candidate, turn_count=1, config=config)
+
+        assert "GENERATION GUIDANCE" not in prompt
 
     def test_non_commonsense_no_generation_guidance(self) -> None:
         candidate = _make_candidate(domain=DomainName.EMPATHY)
@@ -205,6 +215,201 @@ class TestGenerationPrompt:
         prompt = build_generation_prompt(candidate, turn_count=1, config=config)
 
         assert "GENERATION GUIDANCE" not in prompt
+
+    def test_targeted_prompt_has_non_target_constraint(self) -> None:
+        """Targeted prompts list non-target dims with 'do NOT change'."""
+        candidate = Stage2Candidate(
+            dialogue_id="dlg-nt",
+            domain=DomainName.COMMONSENSE,
+            messages=[
+                Message(role="user", content="Hello"),
+                Message(role="assistant", content="Hi"),
+                Message(role="user", content="What happened?"),
+            ],
+            characterizing_scores={"cs_causality": 0.3, "cs_consistency": 0.5},
+            target_dimensions=["cs_causality"],
+            contrastive_direction=ContrastiveDirection.POSITIVE,
+            variant_type=VariantType.DIMENSION_TARGETED,
+        )
+        config = DOMAINS[DomainName.COMMONSENSE]
+        prompt = build_generation_prompt(candidate, turn_count=1, config=config)
+
+        assert "do NOT change" in prompt
+        assert "cs_consistency" in prompt
+        assert "cs_reaction" in prompt
+        assert "cs_desire" in prompt
+
+    def test_global_prompt_has_no_non_target_constraint(self) -> None:
+        candidate = _make_candidate(variant_type=VariantType.GLOBAL_IMPROVE)
+        config = DOMAINS[candidate.domain]
+        prompt = build_generation_prompt(candidate, turn_count=1, config=config)
+
+        assert "do NOT change" not in prompt
+
+    def test_degrade_targeted_has_subtlety_constraint(self) -> None:
+        candidate = Stage2Candidate(
+            dialogue_id="dlg-sub",
+            domain=DomainName.COMMONSENSE,
+            messages=[
+                Message(role="user", content="Hello"),
+                Message(role="assistant", content="Hi"),
+            ],
+            characterizing_scores={"cs_causality": 0.5},
+            target_dimensions=["cs_causality"],
+            contrastive_direction=ContrastiveDirection.NEGATIVE,
+            variant_type=VariantType.DIMENSION_TARGETED,
+        )
+        config = DOMAINS[DomainName.COMMONSENSE]
+        prompt = build_generation_prompt(candidate, turn_count=1, config=config)
+
+        assert "subtle" in prompt.lower()
+        assert "non-sequiturs" in prompt.lower()
+
+    def test_improve_targeted_has_no_subtlety_constraint(self) -> None:
+        candidate = Stage2Candidate(
+            dialogue_id="dlg-nosub",
+            domain=DomainName.COMMONSENSE,
+            messages=[
+                Message(role="user", content="Hello"),
+                Message(role="assistant", content="Hi"),
+            ],
+            characterizing_scores={"cs_causality": 0.3},
+            target_dimensions=["cs_causality"],
+            contrastive_direction=ContrastiveDirection.POSITIVE,
+            variant_type=VariantType.DIMENSION_TARGETED,
+        )
+        config = DOMAINS[DomainName.COMMONSENSE]
+        prompt = build_generation_prompt(candidate, turn_count=1, config=config)
+
+        assert "non-sequiturs" not in prompt.lower()
+
+    def test_global_degrade_has_subtlety_lines(self) -> None:
+        candidate = _make_candidate(
+            variant_type=VariantType.GLOBAL_DEGRADE,
+            direction=ContrastiveDirection.NEGATIVE,
+        )
+        config = DOMAINS[candidate.domain]
+        prompt = build_generation_prompt(candidate, turn_count=1, config=config)
+
+        assert "subtle and natural-sounding" in prompt
+        assert "non-sequiturs" in prompt.lower()
+
+    def test_targeted_prompt_has_score_context(self) -> None:
+        candidate = Stage2Candidate(
+            dialogue_id="dlg-sc",
+            domain=DomainName.COMMONSENSE,
+            messages=[
+                Message(role="user", content="Hello"),
+                Message(role="assistant", content="Hi"),
+            ],
+            characterizing_scores={"cs_causality": 0.25},
+            target_dimensions=["cs_causality"],
+            contrastive_direction=ContrastiveDirection.POSITIVE,
+            variant_type=VariantType.DIMENSION_TARGETED,
+        )
+        config = DOMAINS[DomainName.COMMONSENSE]
+        prompt = build_generation_prompt(candidate, turn_count=1, config=config)
+
+        assert "current score: 0.25" in prompt
+        assert "substantial" in prompt.lower()
+
+    def test_targeted_high_score_gets_subtle_magnitude(self) -> None:
+        candidate = Stage2Candidate(
+            dialogue_id="dlg-hi",
+            domain=DomainName.COMMONSENSE,
+            messages=[
+                Message(role="user", content="Hello"),
+                Message(role="assistant", content="Hi"),
+            ],
+            characterizing_scores={"cs_causality": 0.85},
+            target_dimensions=["cs_causality"],
+            contrastive_direction=ContrastiveDirection.POSITIVE,
+            variant_type=VariantType.DIMENSION_TARGETED,
+        )
+        config = DOMAINS[DomainName.COMMONSENSE]
+        prompt = build_generation_prompt(candidate, turn_count=1, config=config)
+
+        assert "current score: 0.85" in prompt
+        assert "subtle change" in prompt.lower()
+
+    def test_json_output_format_no_pipe_notation(self) -> None:
+        """No pipe notation in any generation template."""
+        for vt, direction in [
+            (VariantType.GLOBAL_IMPROVE, ContrastiveDirection.POSITIVE),
+            (VariantType.GLOBAL_DEGRADE, ContrastiveDirection.NEGATIVE),
+            (VariantType.DIMENSION_TARGETED, ContrastiveDirection.POSITIVE),
+        ]:
+            candidate = _make_candidate(variant_type=vt, direction=direction)
+            config = DOMAINS[candidate.domain]
+            prompt = build_generation_prompt(candidate, turn_count=1, config=config)
+
+            assert '"user"|"assistant"' not in prompt
+            assert '"role": "user"' in prompt
+            assert '"role": "assistant"' in prompt
+
+    def test_multicultural_degrade_uses_less_qualifier(self) -> None:
+        metadata = {
+            "country_1": "Japan",
+            "country_2": "United States",
+            "demographics_1": "Age 30, male",
+            "demographics_2": "Age 25, female",
+            "statement_original": "Respect for elders",
+            "statement_cultural": "Cultural respect",
+            "situation": "Business meeting",
+            "cultural_reasoning_1": "Japanese reasoning",
+            "cultural_reasoning_2": "American reasoning",
+            "arousal_reasoning": "Moderate tension",
+            "arousal_score": "3",
+            "social_norms_1": "Bow when greeting",
+            "social_norms_2": "Handshake",
+            "prejudices_1": "Stereotypes about US",
+            "prejudices_2": "Stereotypes about Japan",
+        }
+        candidate = _make_candidate(
+            domain=DomainName.MULTICULTURAL,
+            direction=ContrastiveDirection.NEGATIVE,
+            variant_type=VariantType.GLOBAL_DEGRADE,
+            domain_metadata=metadata,
+        )
+        config = DOMAINS[candidate.domain]
+        prompt = build_generation_prompt(
+            candidate, turn_count=3, config=config, domain_metadata=metadata,
+        )
+
+        assert "less culturally grounded" in prompt
+        assert "more (or less)" not in prompt
+
+    def test_multicultural_improve_uses_more_qualifier(self) -> None:
+        metadata = {
+            "country_1": "Japan",
+            "country_2": "United States",
+            "demographics_1": "Age 30, male",
+            "demographics_2": "Age 25, female",
+            "statement_original": "Respect for elders",
+            "statement_cultural": "Cultural respect",
+            "situation": "Business meeting",
+            "cultural_reasoning_1": "Japanese reasoning",
+            "cultural_reasoning_2": "American reasoning",
+            "arousal_reasoning": "Moderate tension",
+            "arousal_score": "3",
+            "social_norms_1": "Bow when greeting",
+            "social_norms_2": "Handshake",
+            "prejudices_1": "Stereotypes about US",
+            "prejudices_2": "Stereotypes about Japan",
+        }
+        candidate = _make_candidate(
+            domain=DomainName.MULTICULTURAL,
+            direction=ContrastiveDirection.POSITIVE,
+            variant_type=VariantType.GLOBAL_IMPROVE,
+            domain_metadata=metadata,
+        )
+        config = DOMAINS[candidate.domain]
+        prompt = build_generation_prompt(
+            candidate, turn_count=3, config=config, domain_metadata=metadata,
+        )
+
+        assert "more culturally grounded" in prompt
+        assert "more (or less)" not in prompt
 
     def test_different_domains_produce_different_prompts(self) -> None:
         cs_candidate = _make_candidate(domain=DomainName.COMMONSENSE)
