@@ -166,7 +166,8 @@ def build_pairs(
         evaluation = PairEvaluation(
             method="lm_judge",
             stage_1_scores=vr.original_scores,
-            variant_scores=vr.variant_scores,
+            chosen_scores=chosen_scores,
+            rejected_scores=rejected_scores,
         )
 
         pair = Stage2Pair(

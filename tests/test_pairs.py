@@ -317,7 +317,9 @@ class TestBuildPairs:
         pairs = build_pairs([variant], [result], originals)
         pair = pairs[0]
         assert pair.evaluation.stage_1_scores == orig_scores
-        assert pair.evaluation.variant_scores == var_scores
+        # positive direction: variant is chosen, original is rejected
+        assert pair.evaluation.chosen_scores == var_scores
+        assert pair.evaluation.rejected_scores == orig_scores
 
     def test_no_variants_produces_empty(self) -> None:
         pairs = build_pairs([], [], {})

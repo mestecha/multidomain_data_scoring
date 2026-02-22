@@ -409,7 +409,8 @@ class TestPairEvaluation:
     def test_default_method(self) -> None:
         evaluation = PairEvaluation(
             stage_1_scores={"co_topic_coherence": 0.75},
-            variant_scores={"co_topic_coherence": 0.90},
+            chosen_scores={"co_topic_coherence": 0.90},
+            rejected_scores={"co_topic_coherence": 0.75},
         )
         assert evaluation.method == "lm_judge"
 
@@ -417,7 +418,8 @@ class TestPairEvaluation:
         evaluation = PairEvaluation(
             method="human",
             stage_1_scores={"co_topic_coherence": 0.75},
-            variant_scores={"co_topic_coherence": 0.90},
+            chosen_scores={"co_topic_coherence": 0.90},
+            rejected_scores={"co_topic_coherence": 0.75},
         )
         assert evaluation.method == "human"
 
@@ -442,7 +444,8 @@ class TestStage2Pair:
             ),
             evaluation=PairEvaluation(
                 stage_1_scores={"co_topic_coherence": 0.75},
-                variant_scores={"co_topic_coherence": 0.90},
+                chosen_scores={"co_topic_coherence": 0.90},
+                rejected_scores={"co_topic_coherence": 0.75},
             ),
             messages=[Message(role="user", content="Hi")],
             chosen=[Message(role="assistant", content="Good response")],

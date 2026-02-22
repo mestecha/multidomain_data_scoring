@@ -88,57 +88,30 @@ INSTRUCTIONS:
 {{"continuation": [{{"role": "user"|"assistant", "content": "..."}}]}}
 """
 
-MULTI_DIMENSIONAL_TEMPLATE = """\
-You are an expert dialogue writer specializing in {domain} quality.
-
-Below is a multi-turn dialogue. Your task is to {direction_verb} \
-multiple dimensions: {target_dims_str}.
-
-SHARED PREFIX (do not modify):
-{prefix_text}
-
-ORIGINAL CONTINUATION (to modify):
-{continuation_text}
-
-DIMENSIONS to {direction_verb}:
-{rubric}
-
-INSTRUCTIONS:
-- Write exactly {turn_count} turn(s) as the modified continuation.
-- Keep the same speaker roles and general topic.
-- {direction_verb_cap} the specified dimensions simultaneously.
-- Output ONLY the rewritten continuation turns as JSON:
-
-{{"continuation": [{{"role": "user"|"assistant", "content": "..."}}]}}
-"""
-
 
 # ── Verification template ─────────────────────────────────────────────────
 
-VERIFICATION_TEMPLATE = """\
+EVAL_TEMPLATE = """\
 You are an expert dialogue evaluator for {domain} quality.
 
-Below is a shared dialogue prefix followed by two continuations. \
-Score BOTH continuations on the characterizing dimensions listed below.
+Below is a shared dialogue prefix followed by a continuation. \
+Score the continuation on the characterizing dimensions listed below.
 
 SHARED PREFIX:
 {prefix_text}
 
-CONTINUATION A (original):
-{original_text}
-
-CONTINUATION B (variant):
-{variant_text}
+CONTINUATION:
+{continuation_text}
 
 DIMENSIONS TO SCORE (0.0 to 1.0 each):
 {rubric}
 
 INSTRUCTIONS:
-- Score each continuation independently on each dimension.
+- Score the continuation on each dimension.
 - Use the full 0.0-1.0 range.
 - Output ONLY valid JSON:
 
-{{"original_scores": {{{score_keys}}}, "variant_scores": {{{score_keys}}}}}
+{{"scores": {{{score_keys}}}}}
 """
 
 
@@ -305,7 +278,6 @@ def build_generation_prompt(
         VariantType.GLOBAL_IMPROVE: GLOBAL_IMPROVE_TEMPLATE,
         VariantType.GLOBAL_DEGRADE: GLOBAL_DEGRADE_TEMPLATE,
         VariantType.DIMENSION_TARGETED: DIMENSION_TARGETED_TEMPLATE,
-        VariantType.MULTI_DIMENSIONAL: MULTI_DIMENSIONAL_TEMPLATE,
     }
 
     template = template_map[candidate.variant_type]
@@ -350,23 +322,25 @@ def build_generation_prompt(
 
 
 def build_eval_prompt(
-    original_messages: list[Message],
-    original_continuation: list[Message],
+    prefix_messages: list[Message],
     variant_continuation: list[Message],
     config: DomainConfig,
     domain_metadata: dict[str, str] | None = None,
 ) -> str:
-    prefix_text = _format_messages(original_messages)
-    original_text = _format_messages(original_continuation)
-    variant_text = _format_messages(variant_continuation)
+    """build eval prompt that scores the variant continuation only.
+
+    Stage 1 scores serve as ground truth for the original, so only
+    the variant needs fresh scoring.
+    """
+    prefix_text = _format_messages(prefix_messages)
+    continuation_text = _format_messages(variant_continuation)
     rubric = _build_rubric(config, config.characterizing_dims)
     score_keys = _build_score_keys(config)
 
-    prompt = VERIFICATION_TEMPLATE.format(
+    prompt = EVAL_TEMPLATE.format(
         domain=config.name.value,
         prefix_text=prefix_text,
-        original_text=original_text,
-        variant_text=variant_text,
+        continuation_text=continuation_text,
         rubric=rubric,
         score_keys=score_keys,
     )

@@ -247,7 +247,7 @@ Parse failure distribution by domain: empathy 98 (0.34%), commonsense 41 (0.11%)
 
 ### Evaluation
 
-A second LLM judge (gpt-5.1 via Azure batch API) independently scores both the original continuation and the generated variant on the characterizing dimensions (0.0 to 1.0 each). The judge sees the shared prefix and both continuations side by side but does not know which is the original.
+A second LLM judge (gpt-5.1 via Azure batch API) scores the generated variant continuation on the characterizing dimensions (0.0 to 1.0 each). The judge sees the shared prefix and the variant continuation only. Stage 1 scores serve as ground truth for the original, so only the variant needs fresh scoring.
 
 For multicultural entries, the eval prompt also receives a lighter cultural context block (countries, statement, demographics) so the judge can evaluate cultural dimensions with the right background.
 
@@ -386,7 +386,7 @@ Score ordering is validated before pair emission: the chosen version must actual
 
 **Commonsense 4-dimension targeting.** cs_reaction and cs_desire were promoted from non-characterizing to characterizing, bringing commonsense to 4 characterizing dimensions (matching the 4 ATOMIC dimension categories). All commonsense variants now use single-dimension targeting with gold-based or rotation-based dimension selection. The eval pipeline was extended with a stability check that ensures non-target dimensions stay within ±0.20. The pairs pipeline was updated to compute margin and validate ordering on actual target dimensions rather than all characterizing dimensions.
 
-**Multi-variant generation.** Each dialogue now produces multiple candidates instead of one. Non-commonsense domains produce 3 (1 global + 2 dimension-targeted), commonsense produces 4 (1 per characterizing dim). This 3.25x increase from 38,447 to ~125k candidates gives the batch API more diverse generation requests and the DPO training set richer contrastive signal. The medium-tier random branching between DIMENSION_TARGETED and MULTI_DIMENSIONAL (35% probability) was removed — output is now fully deterministic. Commonsense gold-annotation and rotation-based dimension selection were replaced with full-coverage targeting (every dialogue covers all 4 dims). Custom IDs in generate.py were refactored from `s2g-{id}-{type[:3]}` to `s2g-{id}-{gimp|gdeg|dt-{dim}|mul}` to prevent collisions when multiple candidates share a dialogue_id.
+**Multi-variant generation.** Each dialogue now produces multiple candidates instead of one. Non-commonsense domains produce 3 (1 global + 2 dimension-targeted), commonsense produces 4 (1 per characterizing dim). This 3.25x increase from 38,447 to ~125k candidates gives the batch API more diverse generation requests and the DPO training set richer contrastive signal. Output is fully deterministic. Commonsense gold-annotation and rotation-based dimension selection were replaced with full-coverage targeting (every dialogue covers all 4 dims). Custom IDs in generate.py were refactored from `s2g-{id}-{type[:3]}` to `s2g-{id}-{gimp|gdeg|dt-{dim}}` to prevent collisions when multiple candidates share a dialogue_id.
 
 **Naming consistency.** The Stage 2 evaluation step was renamed from "verify/verification" to "eval/evaluation" across the codebase and data files (`verify.py` → `eval.py`, `shards_verify/` → `shards_eval/`, `VerificationResult` → `EvalResult`, `gen_manifest`/`ver_manifest` → `manifest_gen`/`manifest_eval`). The rename reflects that the LLM judge scores both versions — that is evaluation, not binary verification. Stage 1 batch output directory was renamed from `data/output/` to `data/stage_1/` for consistency with the `data/stage_2/` convention.
 
@@ -450,7 +450,7 @@ data/
   stage_2/shards/output/           26 batch output files (124,955 successful + 12 Opus-recovered)
   stage_2/manifest_gen.jsonl       124,967 manifest entries mapping custom_id to dialogue metadata
   stage_2/shards_eval/             25 eval request shards (124,804 entries)
-  stage_2/shards_eval/output/      25 batch output files with original_scores and variant_scores
+  stage_2/shards_eval/output/      25 batch output files with variant scores
   stage_2/manifest_eval.jsonl      124,804 manifest entries mapping eval custom_id to variant metadata
   stage_2/pairs.jsonl              121,492 preference pairs (257 MB) — S2D-* IDs, 6-label classification
 ```

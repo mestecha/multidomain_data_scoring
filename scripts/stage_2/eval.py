@@ -30,7 +30,12 @@ def build_eval_entries(
     originals: dict[str, Stage1Entry],
     config_map: dict | None = None,
 ) -> tuple[list[BatchEntry], list[dict]]:
-    """build batch entries that score both original and variant continuations."""
+    """build batch entries that score variant continuations only.
+
+    Stage 1 scores serve as ground truth for originals, so only
+    variants need fresh scoring. Stage 1 characterizing scores are
+    stored in the manifest for use during classification.
+    """
     domains = config_map or DOMAINS
     batch_entries: list[BatchEntry] = []
     manifest_items: list[dict] = []
@@ -47,20 +52,24 @@ def build_eval_entries(
 
         config = domains[original.domain]
 
-        # split original into prefix + continuation using variant length
+        # derive prefix from original using variant length
         turn_count = len(variant.variant_messages)
         all_msgs = original.messages
 
         if len(all_msgs) > turn_count:
             prefix_msgs = all_msgs[:-turn_count]
-            original_continuation = all_msgs[-turn_count:]
         else:
             prefix_msgs = all_msgs[:1]
-            original_continuation = all_msgs[1:] if len(all_msgs) > 1 else all_msgs
+
+        # extract stage 1 characterizing scores for the original
+        stage_1_scores = {
+            d: original.scores[d]
+            for d in config.characterizing_dims
+            if d in original.scores and original.scores[d] is not None
+        }
 
         prompt = build_eval_prompt(
-            original_messages=prefix_msgs,
-            original_continuation=original_continuation,
+            prefix_messages=prefix_msgs,
             variant_continuation=variant.variant_messages,
             config=config,
             domain_metadata=original.domain_metadata,
@@ -79,6 +88,7 @@ def build_eval_entries(
                 "direction": variant.direction.value,
                 "variant_type": variant.variant_type.value,
                 "target_dimensions": list(variant.target_dimensions),
+                "stage_1_scores": stage_1_scores,
             }
         )
 
@@ -159,7 +169,7 @@ def parse_eval_results(
     margin_threshold: float = DEFAULT_MARGIN_THRESHOLD,
     config_map: dict | None = None,
 ) -> list[EvalResult]:
-    """parse batch outputs, extract scores, and classify with 6-label system."""
+    """parse batch outputs, extract variant scores, classify against stage 1 scores."""
     domains = config_map or DOMAINS
 
     # load manifest
@@ -188,19 +198,21 @@ def parse_eval_results(
 
                 meta = manifest[custom_id]
 
-                # extract scores from response
+                # extract variant scores from response
                 try:
                     choices = result["response"]["body"]["choices"]
                     content = choices[0]["message"]["content"]
                     parsed = json.loads(content)
-                    original_scores = parsed["original_scores"]
-                    variant_scores = parsed["variant_scores"]
+                    variant_scores = parsed["scores"]
                 except (KeyError, json.JSONDecodeError, IndexError, TypeError) as e:
                     logger.warning(
                         "Failed to parse eval result for {}: {}", custom_id, e
                     )
                     parse_failures += 1
                     continue
+
+                # stage 1 scores from manifest as ground truth for original
+                original_scores = meta["stage_1_scores"]
 
                 # look up domain config for characterizing dims
                 domain = DomainName(meta["domain"])

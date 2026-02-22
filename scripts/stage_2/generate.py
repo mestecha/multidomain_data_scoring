@@ -23,7 +23,6 @@ from scripts.stage_2.prompts import build_generation_prompt
 _VARIANT_TYPE_TAGS: dict[VariantType, str] = {
     VariantType.GLOBAL_IMPROVE: "gimp",
     VariantType.GLOBAL_DEGRADE: "gdeg",
-    VariantType.MULTI_DIMENSIONAL: "mul",
 }
 
 

@@ -257,8 +257,7 @@ class TestEvalPromptCulturalContext:
         }
         config = DOMAINS[DomainName.MULTICULTURAL]
         prompt = build_eval_prompt(
-            original_messages=[Message(role="user", content="Hello")],
-            original_continuation=[Message(role="assistant", content="Hi")],
+            prefix_messages=[Message(role="user", content="Hello")],
             variant_continuation=[Message(role="assistant", content="Hey")],
             config=config,
             domain_metadata=metadata,
@@ -271,9 +270,22 @@ class TestEvalPromptCulturalContext:
     def test_non_multicultural_eval_no_cultural_context(self) -> None:
         config = DOMAINS[DomainName.COMMONSENSE]
         prompt = build_eval_prompt(
-            original_messages=[Message(role="user", content="Hello")],
-            original_continuation=[Message(role="assistant", content="Hi")],
+            prefix_messages=[Message(role="user", content="Hello")],
             variant_continuation=[Message(role="assistant", content="Hey")],
             config=config,
         )
         assert "CULTURAL CONTEXT" not in prompt
+
+    def test_eval_prompt_scores_variant_only(self) -> None:
+        """eval prompt should score a single continuation, not two."""
+        config = DOMAINS[DomainName.COMMONSENSE]
+        prompt = build_eval_prompt(
+            prefix_messages=[Message(role="user", content="Hello")],
+            variant_continuation=[Message(role="assistant", content="Test")],
+            config=config,
+        )
+        assert "CONTINUATION:" in prompt
+        assert "CONTINUATION A" not in prompt
+        assert "CONTINUATION B" not in prompt
+        assert '"scores":' in prompt
+        assert '"scores_a"' not in prompt

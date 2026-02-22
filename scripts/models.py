@@ -39,7 +39,6 @@ class VariantType(str, Enum):
     GLOBAL_IMPROVE = "global_improve"
     GLOBAL_DEGRADE = "global_degrade"
     DIMENSION_TARGETED = "dimension_targeted"
-    MULTI_DIMENSIONAL = "multi_dimensional"
 
 
 class Difficulty(str, Enum):
@@ -215,7 +214,8 @@ class PairMetadata(BaseModel):
 class PairEvaluation(BaseModel):
     method: Literal["lm_judge", "human", "rules"] = "lm_judge"
     stage_1_scores: dict[str, float]
-    variant_scores: dict[str, float]
+    chosen_scores: dict[str, float]
+    rejected_scores: dict[str, float]
 
 
 class Stage2Pair(BaseModel):

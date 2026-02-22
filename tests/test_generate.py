@@ -100,13 +100,6 @@ class TestGenerationPrompt:
         assert "cs_causality" in prompt
         assert "cs_consistency" in prompt
 
-    def test_prompt_adapts_to_multi_dimensional(self) -> None:
-        candidate = _make_candidate(variant_type=VariantType.MULTI_DIMENSIONAL)
-        config = DOMAINS[candidate.domain]
-        prompt = build_generation_prompt(candidate, turn_count=3, config=config)
-
-        assert "multiple dimensions" in prompt.lower()
-
     def test_prompt_includes_rubric_dimensions(self) -> None:
         candidate = _make_candidate()
         config = DOMAINS[candidate.domain]
@@ -298,15 +291,6 @@ class TestBuildGenerationEntries:
         entries, _ = build_generation_entries([candidate])
 
         assert entries[0].custom_id == "s2g-dlg-dim-dt-cs_causality"
-
-    def test_custom_id_for_multi_dimensional(self) -> None:
-        candidate = _make_candidate(
-            variant_type=VariantType.MULTI_DIMENSIONAL,
-            dialogue_id="dlg-mul",
-        )
-        entries, _ = build_generation_entries([candidate])
-
-        assert entries[0].custom_id == "s2g-dlg-mul-mul"
 
     def test_same_dialogue_multiple_variants_unique_ids(self) -> None:
         """Multiple candidates from the same dialogue must produce unique custom_ids."""
