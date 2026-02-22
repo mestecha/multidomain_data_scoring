@@ -284,10 +284,26 @@ MULTICULTURAL_VERIFICATION_CONTEXT = """\
 
 CULTURAL CONTEXT:
 This is a cross-cultural dialogue between speakers from {country_1} and {country_2}.
-Cultural value statement: "{statement_original}"
 
-Speaker 1: {demographics_1}
-Speaker 2: {demographics_2}
+Cultural value being explored: "{statement_original}"
+Culturally adapted perspective: "{statement_cultural}"
+
+Situation: {situation}
+
+SPEAKER 1 ({country_1}):
+{demographics_1}
+Cultural perspective: {cultural_reasoning_1}
+Relevant social norms: {social_norms_1}
+
+SPEAKER 2 ({country_2}):
+{demographics_2}
+Cultural perspective: {cultural_reasoning_2}
+Relevant social norms: {social_norms_2}
+
+CROSS-CULTURAL DYNAMICS:
+How {country_1} may perceive {country_2}: {prejudices_1}
+How {country_2} may perceive {country_1}: {prejudices_2}
+Emotional dynamics: {arousal_reasoning}
 
 Score cultural dimensions with these specific cultural backgrounds in mind.
 """

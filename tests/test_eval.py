@@ -266,6 +266,11 @@ class TestEvalPromptCulturalContext:
         assert "Japan" in prompt
         assert "United States" in prompt
         assert "Respect for elders" in prompt
+        # full cultural profile (not just demographics)
+        assert "Bow when greeting" in prompt
+        assert "Japanese reasoning" in prompt
+        assert "CROSS-CULTURAL DYNAMICS" in prompt
+        assert "Stereotypes about US" in prompt
 
     def test_non_multicultural_eval_no_cultural_context(self) -> None:
         config = DOMAINS[DomainName.COMMONSENSE]
