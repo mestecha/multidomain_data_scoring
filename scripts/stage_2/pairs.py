@@ -11,6 +11,8 @@ from scripts.config import DOMAINS
 from scripts.models import (
     ContrastiveDirection,
     Difficulty,
+    PairContrast,
+    PairDimensions,
     PairEvaluation,
     PairLabel,
     PairMetadata,
@@ -18,11 +20,13 @@ from scripts.models import (
     Stage1Entry,
     Stage2Pair,
     Stage2Variant,
+    VariantType,
     EvalResult,
 )
 
 
 _FLIP_LABELS = {PairLabel.GLOBAL_FLIP_PASS, PairLabel.TARGET_FLIP_PASS}
+_GLOBAL_VARIANT_TYPES = {VariantType.GLOBAL_IMPROVE, VariantType.GLOBAL_DEGRADE}
 
 
 # ── Difficulty thresholds ─────────────────────────────────────────────────
@@ -151,23 +155,53 @@ def build_pairs(
 
         pair_id = f"S2D-{len(pairs) + 1:06d}"
 
+        scope = (
+            "global"
+            if variant.variant_type in _GLOBAL_VARIANT_TYPES
+            else "target"
+        )
+
+        contrast = PairContrast(
+            scope=scope,
+            direction=variant.direction,
+            decision=vr.label,
+            intent_followed=vr.label not in _FLIP_LABELS,
+        )
+
+        dimensions = PairDimensions(
+            domain=config.prefixed_dim_names,
+            target=(
+                list(variant.target_dimensions)
+                if scope == "target"
+                else []
+            ),
+            decision=char_dims,
+        )
+
         metadata = PairMetadata(
             domain=original.domain,
             split=Split.TRAIN,
-            contrastive_direction=effective_direction,
-            target_dimensions=list(effective_dims),
             generation_model=variant.generation_model,
             turn_count=turn_count,
-            variant_type=variant.variant_type,
             difficulty=difficulty,
-            label=vr.label,
+            contrast=contrast,
+            dimensions=dimensions,
         )
 
         evaluation = PairEvaluation(
             method="lm_judge",
             stage_1_scores=vr.original_scores,
-            chosen_scores=chosen_scores,
-            rejected_scores=rejected_scores,
+            stage_2_scores=vr.variant_scores,
+            chosen_score_source=(
+                "stage_2"
+                if effective_direction == ContrastiveDirection.POSITIVE
+                else "stage_1"
+            ),
+            rejected_score_source=(
+                "stage_1"
+                if effective_direction == ContrastiveDirection.POSITIVE
+                else "stage_2"
+            ),
         )
 
         pair = Stage2Pair(

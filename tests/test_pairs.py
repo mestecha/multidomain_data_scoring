@@ -229,7 +229,9 @@ class TestBuildPairs:
 
         pair = pairs[0]
         assert pair.chosen == variant.variant_messages
-        assert pair.metadata.contrastive_direction == ContrastiveDirection.POSITIVE
+        assert pair.metadata.contrast.direction == ContrastiveDirection.POSITIVE
+        assert pair.evaluation.chosen_score_source == "stage_2"
+        assert pair.evaluation.rejected_score_source == "stage_1"
 
     def test_negative_direction_original_is_chosen(self) -> None:
         original = _make_original()
@@ -250,7 +252,9 @@ class TestBuildPairs:
 
         pair = pairs[0]
         assert pair.rejected == variant.variant_messages
-        assert pair.metadata.contrastive_direction == ContrastiveDirection.NEGATIVE
+        assert pair.metadata.contrast.direction == ContrastiveDirection.NEGATIVE
+        assert pair.evaluation.chosen_score_source == "stage_1"
+        assert pair.evaluation.rejected_score_source == "stage_2"
 
     def test_difficulty_assigned(self) -> None:
         original = _make_original()
@@ -317,9 +321,10 @@ class TestBuildPairs:
         pairs = build_pairs([variant], [result], originals)
         pair = pairs[0]
         assert pair.evaluation.stage_1_scores == orig_scores
-        # positive direction: variant is chosen, original is rejected
-        assert pair.evaluation.chosen_scores == var_scores
-        assert pair.evaluation.rejected_scores == orig_scores
+        assert pair.evaluation.stage_2_scores == var_scores
+        # positive direction: variant is chosen (stage_2), original is rejected (stage_1)
+        assert pair.evaluation.chosen_score_source == "stage_2"
+        assert pair.evaluation.rejected_score_source == "stage_1"
 
     def test_no_variants_produces_empty(self) -> None:
         pairs = build_pairs([], [], {})
@@ -358,7 +363,7 @@ class TestBuildPairs:
         assert len(pairs) == 1
         assert pairs[0].metadata.turn_count == 2
 
-    def test_metadata_variant_type(self) -> None:
+    def test_metadata_contrast_scope(self) -> None:
         original = _make_original()
         originals = {original.dialogue_id: original}
 
@@ -366,7 +371,7 @@ class TestBuildPairs:
         result = _make_result()
 
         pairs = build_pairs([variant], [result], originals)
-        assert pairs[0].metadata.variant_type == VariantType.GLOBAL_IMPROVE
+        assert pairs[0].metadata.contrast.scope == "global"
 
     def test_target_dimensions_used_for_margin(self) -> None:
         """When variant has target_dimensions, margin uses those dims only."""
@@ -390,10 +395,10 @@ class TestBuildPairs:
         assert len(pairs) == 1
         # Margin should be 0.5 (easy) not 0.25 (medium)
         assert pairs[0].metadata.difficulty == Difficulty.EASY
-        assert pairs[0].metadata.target_dimensions == ["cs_causality"]
+        assert pairs[0].metadata.dimensions.target == ["cs_causality"]
 
-    def test_empty_target_dimensions_falls_back_to_char_dims(self) -> None:
-        """When variant has no target_dimensions, uses all char_dims."""
+    def test_global_variant_has_empty_target_dims(self) -> None:
+        """Global variant has target=[] in dimensions, decision=char_dims."""
         original = _make_original()
         originals = {original.dialogue_id: original}
 
@@ -407,7 +412,8 @@ class TestBuildPairs:
 
         pairs = build_pairs([variant], [result], originals)
         assert len(pairs) == 1
-        assert set(pairs[0].metadata.target_dimensions) == {
+        assert pairs[0].metadata.dimensions.target == []
+        assert set(pairs[0].metadata.dimensions.decision) == {
             "cs_causality", "cs_consistency", "cs_reaction", "cs_desire",
         }
 
@@ -472,8 +478,8 @@ class TestBuildPairs:
         pair = pairs[0]
         assert pair.rejected == variant.variant_messages
 
-    def test_flip_pass_direction_is_effective(self) -> None:
-        """Flipped pair's contrastive_direction reflects actual (flipped) direction."""
+    def test_flip_pass_stores_original_direction(self) -> None:
+        """Flipped pair's contrast.direction is the ORIGINAL intent, not effective."""
         original = _make_original()
         originals = {original.dialogue_id: original}
 
@@ -486,11 +492,14 @@ class TestBuildPairs:
 
         pairs = build_pairs([variant], [result], originals)
         assert len(pairs) == 1
-        # Intended was POSITIVE, but flipped → effective is NEGATIVE
-        assert pairs[0].metadata.contrastive_direction == ContrastiveDirection.NEGATIVE
+        pair = pairs[0]
+        # direction is original intent, NOT effective
+        assert pair.metadata.contrast.direction == ContrastiveDirection.POSITIVE
+        assert pair.metadata.contrast.intent_followed is False
+        assert pair.metadata.contrast.decision == PairLabel.GLOBAL_FLIP_PASS
 
-    def test_label_carried_on_metadata(self) -> None:
-        """pair.metadata.label matches the eval result label."""
+    def test_intent_followed_true_for_normal_passes(self) -> None:
+        """Non-flip labels have intent_followed=True."""
         original = _make_original()
         originals = {original.dialogue_id: original}
 
@@ -499,4 +508,41 @@ class TestBuildPairs:
 
         pairs = build_pairs([variant], [result], originals)
         assert len(pairs) == 1
-        assert pairs[0].metadata.label == PairLabel.GLOBAL_PASS
+        assert pairs[0].metadata.contrast.intent_followed is True
+        assert pairs[0].metadata.contrast.decision == PairLabel.GLOBAL_PASS
+
+    def test_intent_followed_false_for_target_flip(self) -> None:
+        """TARGET_FLIP_PASS has intent_followed=False."""
+        original = _make_original()
+        originals = {original.dialogue_id: original}
+
+        variant = _make_variant(
+            direction=ContrastiveDirection.POSITIVE,
+            variant_type=VariantType.DIMENSION_TARGETED,
+        )
+        variant.target_dimensions = ["cs_causality"]
+        result = _make_result(
+            label=PairLabel.TARGET_FLIP_PASS,
+            original_scores={"cs_causality": 0.7, "cs_consistency": 0.5},
+            variant_scores={"cs_causality": 0.3, "cs_consistency": 0.5},
+        )
+
+        pairs = build_pairs([variant], [result], originals)
+        assert len(pairs) == 1
+        assert pairs[0].metadata.contrast.intent_followed is False
+        assert pairs[0].metadata.contrast.scope == "target"
+
+    def test_dimensions_domain_has_all_dims(self) -> None:
+        """dimensions.domain lists all domain dims, not just characterizing."""
+        original = _make_original()
+        originals = {original.dialogue_id: original}
+
+        variant = _make_variant()
+        result = _make_result()
+
+        pairs = build_pairs([variant], [result], originals)
+        assert len(pairs) == 1
+        # commonsense has 6 dims total
+        assert len(pairs[0].metadata.dimensions.domain) == 6
+        assert "cs_coherence" in pairs[0].metadata.dimensions.domain
+        assert "cs_empathy" in pairs[0].metadata.dimensions.domain

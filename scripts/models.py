@@ -199,23 +199,35 @@ class EvalResult(BaseModel):
     label: PairLabel
 
 
-class PairMetadata(BaseModel):
+class PairContrast(BaseModel, frozen=True):
+    scope: Literal["global", "target"]
+    direction: ContrastiveDirection
+    decision: PairLabel
+    intent_followed: bool
+
+
+class PairDimensions(BaseModel, frozen=True):
+    domain: list[str]
+    target: list[str]
+    decision: list[str]
+
+
+class PairMetadata(BaseModel, frozen=True):
     domain: DomainName
     split: Split
-    contrastive_direction: ContrastiveDirection
-    target_dimensions: list[str]
     generation_model: str
     turn_count: int
-    variant_type: VariantType
     difficulty: Difficulty
-    label: PairLabel
+    contrast: PairContrast
+    dimensions: PairDimensions
 
 
 class PairEvaluation(BaseModel):
     method: Literal["lm_judge", "human", "rules"] = "lm_judge"
     stage_1_scores: dict[str, float]
-    chosen_scores: dict[str, float]
-    rejected_scores: dict[str, float]
+    stage_2_scores: dict[str, float]
+    chosen_score_source: Literal["stage_1", "stage_2"]
+    rejected_score_source: Literal["stage_1", "stage_2"]
 
 
 class Stage2Pair(BaseModel):

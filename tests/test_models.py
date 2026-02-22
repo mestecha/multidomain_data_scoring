@@ -15,6 +15,8 @@ from scripts.models import (
     DomainName,
     ManifestItem,
     Message,
+    PairContrast,
+    PairDimensions,
     PairEvaluation,
     PairLabel,
     PairMetadata,
@@ -22,7 +24,6 @@ from scripts.models import (
     Split,
     Stage1Entry,
     Stage2Pair,
-    VariantType,
 )
 
 
@@ -383,6 +384,48 @@ class TestMessage:
 # ── Stage 2 Models ────────────────────────────────────────────────────────
 
 
+class TestPairContrast:
+    """Tests for PairContrast model."""
+
+    def test_creation(self) -> None:
+        contrast = PairContrast(
+            scope="global",
+            direction=ContrastiveDirection.POSITIVE,
+            decision=PairLabel.GLOBAL_PASS,
+            intent_followed=True,
+        )
+        assert contrast.scope == "global"
+        assert contrast.intent_followed is True
+
+    def test_frozen(self) -> None:
+        contrast = PairContrast(
+            scope="target",
+            direction=ContrastiveDirection.NEGATIVE,
+            decision=PairLabel.TARGET_PASS,
+            intent_followed=True,
+        )
+        with pytest.raises(ValidationError):
+            contrast.scope = "global"
+
+
+class TestPairDimensions:
+    """Tests for PairDimensions model."""
+
+    def test_creation(self) -> None:
+        dims = PairDimensions(
+            domain=["co_topic_coherence", "co_logical_consistency"],
+            target=[],
+            decision=["co_topic_coherence"],
+        )
+        assert len(dims.domain) == 2
+        assert dims.target == []
+
+    def test_frozen(self) -> None:
+        dims = PairDimensions(domain=["x"], target=[], decision=["x"])
+        with pytest.raises(ValidationError):
+            dims.target = ["y"]
+
+
 class TestPairMetadata:
     """Tests for PairMetadata model."""
 
@@ -390,17 +433,24 @@ class TestPairMetadata:
         meta = PairMetadata(
             domain=DomainName.COHERENCE,
             split=Split.TRAIN,
-            contrastive_direction=ContrastiveDirection.POSITIVE,
-            target_dimensions=["co_topic_coherence"],
             generation_model="gpt-5.1",
             turn_count=4,
-            variant_type=VariantType.GLOBAL_IMPROVE,
             difficulty=Difficulty.MEDIUM,
-            label=PairLabel.GLOBAL_PASS,
+            contrast=PairContrast(
+                scope="global",
+                direction=ContrastiveDirection.POSITIVE,
+                decision=PairLabel.GLOBAL_PASS,
+                intent_followed=True,
+            ),
+            dimensions=PairDimensions(
+                domain=["co_topic_coherence", "co_logical_consistency"],
+                target=[],
+                decision=["co_topic_coherence", "co_logical_consistency"],
+            ),
         )
         assert meta.domain == DomainName.COHERENCE
         assert meta.turn_count == 4
-        assert meta.label == PairLabel.GLOBAL_PASS
+        assert meta.contrast.decision == PairLabel.GLOBAL_PASS
 
 
 class TestPairEvaluation:
@@ -409,8 +459,9 @@ class TestPairEvaluation:
     def test_default_method(self) -> None:
         evaluation = PairEvaluation(
             stage_1_scores={"co_topic_coherence": 0.75},
-            chosen_scores={"co_topic_coherence": 0.90},
-            rejected_scores={"co_topic_coherence": 0.75},
+            stage_2_scores={"co_topic_coherence": 0.90},
+            chosen_score_source="stage_2",
+            rejected_score_source="stage_1",
         )
         assert evaluation.method == "lm_judge"
 
@@ -418,8 +469,9 @@ class TestPairEvaluation:
         evaluation = PairEvaluation(
             method="human",
             stage_1_scores={"co_topic_coherence": 0.75},
-            chosen_scores={"co_topic_coherence": 0.90},
-            rejected_scores={"co_topic_coherence": 0.75},
+            stage_2_scores={"co_topic_coherence": 0.90},
+            chosen_score_source="stage_2",
+            rejected_score_source="stage_1",
         )
         assert evaluation.method == "human"
 
@@ -434,18 +486,26 @@ class TestStage2Pair:
             metadata=PairMetadata(
                 domain=DomainName.COHERENCE,
                 split=Split.TRAIN,
-                contrastive_direction=ContrastiveDirection.POSITIVE,
-                target_dimensions=["co_topic_coherence"],
                 generation_model="gpt-5.1",
                 turn_count=4,
-                variant_type=VariantType.GLOBAL_IMPROVE,
                 difficulty=Difficulty.MEDIUM,
-                label=PairLabel.GLOBAL_PASS,
+                contrast=PairContrast(
+                    scope="global",
+                    direction=ContrastiveDirection.POSITIVE,
+                    decision=PairLabel.GLOBAL_PASS,
+                    intent_followed=True,
+                ),
+                dimensions=PairDimensions(
+                    domain=["co_topic_coherence"],
+                    target=[],
+                    decision=["co_topic_coherence"],
+                ),
             ),
             evaluation=PairEvaluation(
                 stage_1_scores={"co_topic_coherence": 0.75},
-                chosen_scores={"co_topic_coherence": 0.90},
-                rejected_scores={"co_topic_coherence": 0.75},
+                stage_2_scores={"co_topic_coherence": 0.90},
+                chosen_score_source="stage_2",
+                rejected_score_source="stage_1",
             ),
             messages=[Message(role="user", content="Hi")],
             chosen=[Message(role="assistant", content="Good response")],
@@ -458,6 +518,10 @@ class TestStage2Pair:
         assert restored.pair_id == pair.pair_id
         assert restored.source_dialogue_id == pair.source_dialogue_id
         assert restored.metadata.domain == DomainName.COHERENCE
+        assert restored.metadata.contrast.scope == "global"
+        assert restored.metadata.contrast.intent_followed is True
+        assert restored.metadata.dimensions.target == []
         assert restored.evaluation.method == "lm_judge"
+        assert restored.evaluation.chosen_score_source == "stage_2"
         assert len(restored.chosen) == 1
         assert len(restored.rejected) == 1

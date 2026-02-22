@@ -33,8 +33,8 @@ def build_eval_entries(
     """build batch entries that score variant continuations only.
 
     Stage 1 scores serve as ground truth for originals, so only
-    variants need fresh scoring. Stage 1 characterizing scores are
-    stored in the manifest for use during classification.
+    variants need fresh scoring. All Stage 1 domain scores are
+    stored in the manifest for richer downstream signal.
     """
     domains = config_map or DOMAINS
     batch_entries: list[BatchEntry] = []
@@ -61,10 +61,10 @@ def build_eval_entries(
         else:
             prefix_msgs = all_msgs[:1]
 
-        # extract stage 1 characterizing scores for the original
+        # extract all stage 1 domain scores for the original
         stage_1_scores = {
             d: original.scores[d]
-            for d in config.characterizing_dims
+            for d in config.prefixed_dim_names
             if d in original.scores and original.scores[d] is not None
         }
 

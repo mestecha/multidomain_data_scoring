@@ -247,7 +247,7 @@ Parse failure distribution by domain: empathy 98 (0.34%), commonsense 41 (0.11%)
 
 ### Evaluation
 
-A second LLM judge (gpt-5.1 via Azure batch API) scores the generated variant continuation on the characterizing dimensions (0.0 to 1.0 each). The judge sees the shared prefix and the variant continuation only. Stage 1 scores serve as ground truth for the original, so only the variant needs fresh scoring.
+A second LLM judge (gpt-5.1 via Azure batch API) scores the generated variant continuation on all domain dimensions (0.0 to 1.0 each). The judge sees the shared prefix and the variant continuation only. Stage 1 scores serve as ground truth for the original, so only the variant needs fresh scoring. Classification uses only characterizing dimensions, but all scores are stored for richer downstream signal.
 
 For multicultural entries, the eval prompt also receives a lighter cultural context block (countries, statement, demographics) so the judge can evaluate cultural dimensions with the right background.
 
@@ -262,8 +262,8 @@ The new system replaces the binary gate with a 6-label classifier. Every label e
 | **global_pass** | Global variants | Avg of all char dims moved in intended direction by > 0.20 | Standard: intended direction |
 | **target_pass** | Targeted variants | Target dim moved correctly by > 0.20, non-targets within ±0.20 | Standard: intended direction |
 | **target_coarse_pass** | Targeted variants | Target dim moved correctly by > 0.20, non-targets drifted beyond ±0.20 | Standard: intended direction |
-| **global_flip_pass** | Global variants | Avg moved OPPOSITE to intended by > 0.20 | Swap chosen/rejected, flip contrastive_direction |
-| **target_flip_pass** | Targeted variants | Target dim moved OPPOSITE to intended by > 0.20 | Swap chosen/rejected, flip contrastive_direction |
+| **global_flip_pass** | Global variants | Avg moved OPPOSITE to intended by > 0.20 | Swap chosen/rejected, intent_followed=false |
+| **target_flip_pass** | Targeted variants | Target dim moved OPPOSITE to intended by > 0.20 | Swap chosen/rejected, intent_followed=false |
 | **reject** | Both | Target/avg moved ≤ 0.20 in either direction, or missing scores | Discarded — no contrastive signal |
 
 The ±0.20 stability threshold in `target_pass` vs `target_coarse_pass` classifies non-target co-movement quality — it no longer causes rejection. The margin threshold (also 0.20) and stability threshold serve different purposes despite sharing the same value.
@@ -363,7 +363,7 @@ Each non-rejected variant becomes a preference pair. The 6-label system determin
 
 For standard labels (global_pass, target_pass, target_coarse_pass): positive-direction variants use the generated version as chosen and original as rejected. Negative-direction variants reverse this.
 
-For flip labels (global_flip_pass, target_flip_pass): the variant moved in the opposite direction from intended. The pair swaps chosen/rejected and flips contrastive_direction to reflect the actual signal. A positive-intended variant that degraded quality becomes a negative-direction pair where the original is chosen.
+For flip labels (global_flip_pass, target_flip_pass): the variant moved in the opposite direction from intended. The pair swaps chosen/rejected accordingly; `contrast.direction` preserves the original intent and `contrast.intent_followed` is set to false. A positive-intended variant that degraded quality becomes a pair where the original is chosen.
 
 Each pair carries both a difficulty label and a pair label. Difficulty is based on the margin between chosen and rejected scores on target dimensions: easy (≥ 0.30), medium (0.15–0.30), hard (< 0.15). The pair label identifies provenance — how the pair was formed and what kind of signal it carries.
 

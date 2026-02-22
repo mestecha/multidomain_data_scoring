@@ -95,7 +95,7 @@ EVAL_TEMPLATE = """\
 You are an expert dialogue evaluator for {domain} quality.
 
 Below is a shared dialogue prefix followed by a continuation. \
-Score the continuation on the characterizing dimensions listed below.
+Score the continuation on all dimensions listed below.
 
 SHARED PREFIX:
 {prefix_text}
@@ -236,9 +236,8 @@ def _build_rubric(config: DomainConfig, target_dims: list[str]) -> str:
 def _build_score_keys(config: DomainConfig) -> str:
     keys = []
     for dim_def in config.dimensions:
-        if dim_def.is_characterizing:
-            prefixed = f"{config.prefix}_{dim_def.name}"
-            keys.append(f'"{prefixed}": <float>')
+        prefixed = f"{config.prefix}_{dim_def.name}"
+        keys.append(f'"{prefixed}": <float>')
     return ", ".join(keys)
 
 
@@ -334,7 +333,7 @@ def build_eval_prompt(
     """
     prefix_text = _format_messages(prefix_messages)
     continuation_text = _format_messages(variant_continuation)
-    rubric = _build_rubric(config, config.characterizing_dims)
+    rubric = _build_rubric(config, config.prefixed_dim_names)
     score_keys = _build_score_keys(config)
 
     prompt = EVAL_TEMPLATE.format(

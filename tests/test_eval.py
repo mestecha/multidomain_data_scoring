@@ -289,3 +289,18 @@ class TestEvalPromptCulturalContext:
         assert "CONTINUATION B" not in prompt
         assert '"scores":' in prompt
         assert '"scores_a"' not in prompt
+
+    def test_eval_prompt_includes_all_domain_dims(self) -> None:
+        """eval prompt should include ALL domain dims, not just characterizing."""
+        config = DOMAINS[DomainName.COMMONSENSE]
+        prompt = build_eval_prompt(
+            prefix_messages=[Message(role="user", content="Hello")],
+            variant_continuation=[Message(role="assistant", content="Test")],
+            config=config,
+        )
+        # all 6 commonsense dims should be in rubric and score keys
+        for dim in config.prefixed_dim_names:
+            assert dim in prompt, f"{dim} missing from eval prompt"
+        # non-characterizing dims must also be present
+        assert "cs_coherence" in prompt
+        assert "cs_empathy" in prompt
