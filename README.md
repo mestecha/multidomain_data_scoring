@@ -29,7 +29,7 @@ Stage 2          HELD OUT       HELD OUT
 121,326 preference pairs (stage_2.jsonl)
 ```
 
-Val and test splits are never touched by Stage 2. They exist solely for downstream evaluation of the trained model.
+Val and test splits are held out from Stage 2 for downstream model evaluation.
 
 
 ## Stage 1 — Scoring
@@ -70,7 +70,7 @@ The characterizing average across the 9,597 train entries is 0.739 (std 0.268). 
 | em_helpful_response | 0.204 | 0.236 | |
 | em_overall_empathy_score | 0.249 | 0.245 | |
 
-The characterizing average is 0.284 (std 0.237). Empathy dialogues score low across the board — the source corpus contains many dismissive or unhelpful responses, which makes it ideal for generating improved variants.
+The characterizing average is 0.284 (std 0.237). Empathy dialogues score low across the board — the source corpus contains many dismissive or unhelpful responses, making it ideal for generating improved variants.
 
 **Commonsense** has 6 dimensions on a native 0-1 scale. Four are characterizing — each maps to specific ATOMIC commonsense relations:
 
@@ -100,7 +100,7 @@ avg score    count    pct
 0.8 – 0.9        2    0.0%
 ```
 
-86.6% of entries fall below the 0.4 low-tier threshold. This heavy left skew means nearly all commonsense variants will be improvements, which is exactly what you want — the originals are weak on commonsense and need strengthening.
+86.6% of entries fall below the 0.4 low-tier threshold. This heavy left skew means nearly all commonsense variants will be improvements — the originals are weak on commonsense and need strengthening.
 
 **Multicultural** has 5 dimensions on a native 0-1 scale. Two are characterizing:
 
@@ -144,7 +144,7 @@ The average of characterizing dimension scores places each entry into a quality 
 | Medium-high | 0.55 – 0.70 | Global degrade + per-dim targeted | negative |
 | High | >= 0.70 | Global degrade + per-dim targeted | negative |
 
-Every non-commonsense dialogue produces 3 candidates regardless of tier: 1 global (improve or degrade based on direction) + 1 dimension-targeted per characterizing dim. Every commonsense dialogue produces 4 dimension-targeted candidates (one per characterizing dim, no global). This multi-variant strategy gives the batch API more diverse generation requests and the DPO training set richer contrastive signal per dialogue.
+Every non-commonsense dialogue produces 3 candidates regardless of tier: 1 global (improve or degrade based on direction) + 1 dimension-targeted per characterizing dim. Every commonsense dialogue produces 4 dimension-targeted candidates (one per characterizing dim, no global). This produces more diverse generation requests and richer contrastive signal per dialogue.
 
 The resulting tier distribution reflects each domain's score profile:
 
@@ -178,32 +178,17 @@ Each dialogue fans out to multiple candidates. The variant type determines how t
 | Commonsense | 9,647 | 4 | 38,588 | — | 38,588 |
 | **Total** | **38,447** | | **~124,988** | **28,800** | **96,188** |
 
-For non-commonsense domains, each dialogue's global candidate uses GLOBAL_IMPROVE (positive direction) or GLOBAL_DEGRADE (negative direction) based on the tier. The 2 dimension-targeted candidates each focus on a single characterizing dim. Commonsense produces only dimension-targeted candidates — one per dim — because single-dimension targeting produces cleaner DPO signal for commonsense reasoning.
-
-### Commonsense Full-Coverage Targeting
-
-Commonsense produces 4 dimension-targeted candidates per dialogue (one per characterizing dim), no global variant. Single-dimension targeting produces cleaner DPO signal — each pair isolates one commonsense reasoning skill. Result: 9,647 candidates per dim, 38,588 total.
-
-**Gold annotations.** 2,395 train entries (24.8%) have gold ATOMIC relation labels in domain_metadata. These are preserved as reference metadata but no longer affect targeting — every dialogue covers all 4 dimensions.
+For non-commonsense domains, each dialogue's global candidate uses GLOBAL_IMPROVE or GLOBAL_DEGRADE based on the tier, and the 2 dimension-targeted candidates each focus on a single characterizing dim. Commonsense produces only dimension-targeted candidates — one per dim, no global — because isolating a single commonsense reasoning skill per pair produces cleaner DPO signal. Of the 9,647 commonsense train entries, 2,395 (24.8%) have gold ATOMIC relation labels preserved in domain_metadata as reference, though targeting now covers all 4 dimensions regardless.
 
 ### Generation Prompt Structure
 
 Each generation prompt contains the dialogue split into a shared prefix (unchanged context) and an original continuation (the part to rewrite). The continuation length is sampled from a weighted distribution: 1 turn (15%), 3 turns (40%), 5 turns (30%), 7 turns (15%).
 
-The prompt also includes a rubric describing the target dimensions, pulled from the dimension descriptions in config.py. The rubric tells the model what each dimension means and how to evaluate it. For `global_improve` and `global_degrade` variants, the rubric covers all characterizing dimensions. For `dimension_targeted` variants, it covers only the target dimensions.
+The prompt also includes a dimension rubric from config.py that tells the model what each target dimension means. For global variants the rubric covers all characterizing dimensions; for dimension-targeted variants it covers only the targets.
 
-**Prompt quality controls:**
+Generation prompts include several quality controls. A direction-aware CURRENT SCORES block provides magnitude guidance that accounts for floor/ceiling effects — a degrade prompt targeting an already-low score produces "make a minimal, subtle change" rather than gibberish. Targeted prompts include a NON-TARGET DIMENSIONS block listing dimensions to preserve, and global degrade prompts similarly protect non-characterizing dimensions. All degrade prompts carry subtlety constraints to prevent obviously broken text, and the output format uses explicit JSON role objects rather than pipe notation.
 
-- Direction-aware CURRENT SCORES block with magnitude guidance accounting for floor/ceiling effects (e.g., degrade + low score → "make a minimal, subtle change" instead of producing gibberish)
-- NON-TARGET DIMENSIONS block in targeted prompts listing dims to preserve. Global degrade prompts similarly list non-characterizing dims to protect
-- Subtlety constraints on all degrade prompts to prevent obviously broken text
-- Explicit JSON role objects (`{"role": "user", "content": "..."}`) instead of pipe notation
-
-**Domain-specific additions:**
-
-All four domains include a GENERATION GUIDANCE block with concrete writing strategies per dimension and direction (e.g., improving cs_causality → "ensure clear cause-effect relationships"; degrading cs_reaction → "reactions slightly off — a bit too muted or intense").
-
-Multicultural prompts include a CULTURAL CONTEXT block with 15 fields from the raw data: both countries, demographics, cultural perspectives, value statements, social norms, cross-cultural prejudices, and emotional dynamics. Direction qualifier is explicit: "more culturally grounded" for improve, "less culturally grounded" for degrade.
+All four domains include a GENERATION GUIDANCE block with concrete writing strategies per dimension and direction (e.g., improving cs_causality → "ensure clear cause-effect relationships"; degrading cs_reaction → "reactions slightly off — a bit too muted or intense"). Multicultural prompts additionally include a CULTURAL CONTEXT block with 15 fields from the raw data: both countries, demographics, cultural perspectives, value statements, social norms, cross-cultural prejudices, and emotional dynamics. The direction qualifier reads "more culturally grounded" for improve and "less culturally grounded" for degrade.
 
 Real example prompts for all four domains are saved in `data/stage_2_example_prompts.txt`.
 
@@ -219,11 +204,12 @@ Results from v2 re-run with improved prompts. V1 outputs in `data/stage_2/backup
 |--------|-------|
 | Manifest entries | 124,967 |
 | Shards submitted | 25 (5,000 entries each, last shard 4,967) |
-| Successful generations | 124,792 (99.86%) |
-| Null content (failed) | 169 (0.14%) |
-| Skipped (<2 messages) | 21 |
+| Batch outputs received | 124,961 (6 no response) |
+| Null content | 169 |
+| Skipped (<2 messages) | 20 |
+| **Forwarded to eval** | **124,772** |
 
-The parser handles malformed responses (null content, list-type content, capitalized roles) gracefully. Final parse: 124,772 variants from 124,967 entries (189 parse failures = 0.15%).
+The parser handles malformed responses (null content, list-type content, capitalized roles). Of 124,967 manifest entries, 195 (0.16%) did not reach eval: 6 missing from batch output, 169 null content, 20 skipped for insufficient messages.
 
 ### Evaluation
 
@@ -244,13 +230,13 @@ Each label encodes variant origin (global vs targeted) and signal quality (clean
 | **target_flip_pass** | Targeted variants | Target dim moved OPPOSITE to intended by > margin | Swap chosen/rejected, intent_followed=false |
 | **reject** | Both | Target/avg moved ≤ margin in either direction, or missing scores | Discarded — no contrastive signal |
 
-The ±0.20 stability threshold in `target_pass` vs `target_coarse_pass` classifies non-target co-movement quality — it no longer causes rejection. The margin threshold and stability threshold serve different purposes and have different values (0.05 and 0.20 respectively).
+The ±0.20 stability threshold in `target_pass` vs `target_coarse_pass` classifies non-target co-movement quality — it no longer causes rejection. The two thresholds (margin 0.05, stability 0.20) serve different purposes and are set independently.
 
 ### Evaluation Results
 
 25 eval shards (124,772 entries), 5 concurrent jobs, all completed successfully.
 
-**Overall: 121,326 usable / 124,772 evaluated (97.2%)**
+**Overall: 121,326 usable / 124,772 submitted to eval (97.2%)**
 
 | Domain | global_pass | target_pass | target_coarse_pass | global_flip_pass | target_flip_pass | reject | **Usable** |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -260,11 +246,11 @@ The ±0.20 stability threshold in `target_pass` vs `target_coarse_pass` classifi
 | Commonsense | 0 | 52 | 37,636 | 0 | 593 | 265 | **38,281** |
 | **Total** | **27,688** | **17,982** | **71,410** | **427** | **3,819** | **3,446** | **121,326** |
 
-Multicultural accounts for 69% of rejects — the evaluator perceives smaller cultural quality differences than intended. 4,246 usable pairs (3.5%) have `intent_followed=false` (flip_pass pairs with swapped chosen/rejected).
+Multicultural accounts for 69% of rejects — the evaluator perceives smaller cultural quality differences than intended. The 3,446 reject total includes 4 entries that received no batch response (true classification rejects: 3,442). 4,246 usable pairs (3.5%) have `intent_followed=false` (flip_pass pairs with swapped chosen/rejected).
 
-**V2 vs v1 comparison.** The v2 re-run with improved prompts produced notable shifts: target_pass increased from 13,516 to 17,982 (+33%), indicating better non-target preservation from the explicit NON-TARGET DIMENSIONS constraints. Total flip_pass decreased from 8,358 to 4,246 (−49%), indicating the generator more reliably moves scores in the intended direction. Multicultural target_flip_pass dropped from 6,786 to 1,866 (−73%) — the full cultural context in eval prompts and direction-aware score guidance reduced direction confusion.
+**V2 vs v1 comparison.** V2 changed both prompts and margin threshold (v1 used 0.20, v2 uses 0.05), so some shifts are confounded. Total flip_pass decreased from 8,358 to 4,246 (−49%) — this is a genuine prompt improvement because a lower threshold would admit *more* flips, not fewer. Multicultural target_flip_pass dropped from 6,786 to 1,866 (−73%), confirming that full cultural context and direction-aware guidance reduced direction confusion. Target_pass increased from 13,516 to 17,982 (+33%), which partly reflects the lower threshold admitting more pairs and partly reflects better non-target preservation from explicit constraints.
 
-**By variant type:**
+The variant type distribution across domains:
 
 | Domain | Global improve | Global degrade | Dimension targeted | Total |
 |--------|---:|---:|---:|---:|
@@ -274,7 +260,7 @@ Multicultural accounts for 69% of rejects — the evaluator perceives smaller cu
 | Commonsense | — | — | 38,281 | 38,281 |
 | **Total** | **12,026** | **16,089** | **93,211** | **121,326** |
 
-**By target dimension (dimension_targeted pairs only):**
+Within dimension-targeted pairs, the per-dimension breakdown:
 
 | Dimension | target_pass | target_coarse_pass | target_flip_pass | Total |
 |-----------|---:|---:|---:|---:|
@@ -290,7 +276,7 @@ Multicultural accounts for 69% of rejects — the evaluator perceives smaller cu
 | cs_reaction | 8 | 9,313 | 182 | 9,503 |
 | **Total** | **17,982** | **71,410** | **3,819** | **93,211** |
 
-**Difficulty distribution:**
+Pair difficulty is based on the margin between chosen and rejected scores:
 
 | Domain | Easy (≥ 0.30) | Medium (0.15–0.30) | Hard (< 0.15) | Total |
 |--------|---:|---:|---:|---:|
@@ -300,9 +286,9 @@ Multicultural accounts for 69% of rejects — the evaluator perceives smaller cu
 | Multicultural | 13,162 (49.8%) | 8,270 (31.3%) | 5,016 (19.0%) | 26,448 |
 | **Total** | **94,403 (77.8%)** | **15,813 (13.0%)** | **11,110 (9.2%)** | **121,326** |
 
-Multicultural is the hardest domain (50% easy, 19% hard). Coherence shifted from 88% easy (v1) to 68% (v2) — subtler degradation prompts produce smaller margins.
+Multicultural is the hardest domain (50% easy, 19% hard). Coherence shifted from 88% easy (v1) to 68% (v2) — both subtler degradation prompts and the lower margin threshold (0.05 vs 0.20) contribute, since the lower threshold admits more small-margin pairs classified as medium or hard.
 
-**Contrastive direction distribution:**
+The contrastive direction shows which side of each pair was chosen:
 
 | Domain | Positive (variant is chosen) | Negative (original is chosen) | Total |
 |--------|---:|---:|---:|
@@ -314,7 +300,7 @@ Multicultural is the hardest domain (50% easy, 19% hard). Coherence shifted from
 
 Empathy and commonsense originals score low → variants improve → variant is chosen. Coherence and multicultural originals score high → variants degrade → original is chosen.
 
-**Score distributions (variant vs. original):**
+Average characterizing dimension scores across all pairs:
 
 | Domain | Dimension | Original avg | Variant avg | Shift |
 |--------|-----------|:---:|:---:|:---:|
@@ -340,50 +326,22 @@ Each pair carries a difficulty label (easy ≥ 0.30, medium 0.15–0.30, hard < 
 
 ## Changes
 
-**Falsy-value bug.** `x or y` drops 0.0 as falsy → 10,560 commonsense batch failures. Fixed with `x is None`.
+The pipeline went through several data-level fixes before reaching its current state. A falsy-value bug where `x or y` dropped 0.0 caused 10,560 commonsense batch failures, fixed by switching to `x is None`. Multicultural dialogues had escaped newlines — the raw CSV stored literal `\n` strings, collapsing all 12,816 dialogues to single messages — fixed in parse_dialogue_to_messages. The score template was unified so every entry carries all 23 dimension keys regardless of domain (domain scores filled, others null).
 
-**Multicultural escaped newlines.** Raw CSV stored literal `\n` strings → all 12,816 dialogues collapsed to single messages. Fixed in parse_dialogue_to_messages.
+On the content side, generation and eval prompts now receive 15 cultural metadata fields for multicultural entries, backtracked from the raw CSV via each dialogue's uid. Gold ATOMIC relation labels for ~25% of commonsense dialogues are loaded at merge time into domain_metadata. cs_reaction and cs_desire were promoted to characterizing dimensions, enabling 4-dim full-coverage targeting for commonsense.
 
-**Score template uniformity.** Every entry now carries all 23 dimension keys (domain scores filled, others null).
+Structurally, each dialogue now produces 3–4 candidates (a 3.25x increase to ~125k) with custom IDs refactored to `s2g-{id}-{gimp|gdeg|dt-{dim}}` to prevent collisions. "verify/verification" was renamed to "eval/evaluation" across the codebase, `data/output/` became `data/stage_1/`, and compound pair IDs were simplified to sequential `S2D-{n:06d}`.
 
-**Multicultural cultural context.** Generation and eval prompts now receive 15 cultural metadata fields backtracked from the raw CSV via each dialogue's uid.
-
-**Commonsense gold relation metadata.** Gold ATOMIC relation labels for ~25% of dialogues loaded at merge time into domain_metadata.
-
-**Commonsense 4-dimension targeting.** cs_reaction and cs_desire promoted to characterizing, enabling 4-dim full-coverage targeting.
-
-**Multi-variant generation.** Each dialogue produces 3–4 candidates (3.25x increase to ~125k). Custom IDs refactored to `s2g-{id}-{gimp|gdeg|dt-{dim}}` to prevent collisions.
-
-**Naming consistency.** "verify/verification" → "eval/evaluation" across codebase. `data/output/` → `data/stage_1/`.
-
-**Pair ID simplification.** Compound IDs → sequential `S2D-{n:06d}`.
-
-**Prompt quality fixes (v2).** 17 issues fixed across 3 review rounds with 28 new tests. Full stage 2 re-run after fixes:
-
-- Direction-aware score context with floor/ceiling-aware magnitude guidance
-- Non-target dimension constraints in targeted and global degrade prompts
-- Subtlety constraints on all degrade prompts
-- Score anchoring in eval (0.0–1.0 five-level anchor scale)
-- Prefix-continuation reasoning in eval instructions
-- Full multicultural eval context matching generation prompts
-- Explicit direction qualifiers ("more/less culturally grounded")
-- Subtler commonsense degrade strategies
-- Generation guidance for all 4 domains
-- Cultural context positioned before instructions
-- Explicit JSON role objects (no pipe notation)
+The v2 prompt quality pass fixed 17 issues across 3 review rounds with 28 new tests, followed by a full stage 2 re-run. Generation prompts gained direction-aware score context with floor/ceiling magnitude guidance, non-target dimension constraints, subtlety constraints on all degrade variants, per-domain writing strategies, and subtler commonsense degrade approaches. Multicultural prompts received explicit direction qualifiers ("more/less culturally grounded") and cultural context positioned before instructions. Eval prompts gained five-level score anchoring (0.0–1.0) and prefix-continuation reasoning. Across both, pipe notation was replaced with explicit JSON role objects.
 
 
 ## Known Risks
 
-**Short commonsense dialogues.** 76.6% have exactly 5 messages. When continuation length exceeds the original, the fallback uses a 1-message prefix — generated variants may not meaningfully correspond to the original.
+76.6% of commonsense dialogues have exactly 5 messages. When continuation length exceeds the original, the fallback uses a 1-message prefix, so generated variants may not meaningfully correspond to the original. Separately, Stage 2 eval uses a single-continuation format with score anchoring while Stage 1 uses domain-specific rubrics — this asymmetry is by design (independent validation) but could affect pass rates.
 
-**Eval vs Stage 1 prompt asymmetry.** Stage 2 eval uses a single-continuation format with score anchoring, while Stage 1 uses domain-specific rubrics. This is by design (independent validation) but could affect pass rates.
+The label distribution is dominated by target_coarse_pass at 71,410 pairs (59%), which carry valid target signal but noisy non-target behavior. DPO training may want to weight by label. Another 4,246 pairs (3.5%) are flip_pass with reversed contrastive direction, and mu_cultural_value has the highest flip rate at 22%.
 
-**Target_coarse_pass dominance.** 71,410 pairs (59%) have valid target signal but noisy non-target behavior. DPO training may want to weight by label.
-
-**Flip_pass pairs.** 4,246 pairs (3.5%) carry reversed contrastive direction. mu_cultural_value has the highest flip rate (22%).
-
-**Margin threshold sensitivity.** Percentage of pairs lost at each threshold:
+Margin threshold sensitivity varies by domain:
 
 | Threshold | Coherence | Empathy | Commonsense | Multicultural |
 |:-:|---:|---:|---:|---:|
@@ -450,6 +408,6 @@ data/
 | Val | 5,127 | Held out for downstream evaluation | `data/stage_1.jsonl` (filter `split == "val"`) |
 | Test | 7,690 | Held out for downstream evaluation | `data/stage_1.jsonl` (filter `split == "test"`) |
 
-Val/test entries live in `stage_1.jsonl` distinguished by the `split` field. Stage 2 filters to `split == "train"` — val/test are never used during pair construction.
+Val/test entries are in `stage_1.jsonl` distinguished by the `split` field. Stage 2 filters to `split == "train"` — val/test are never used during pair construction.
 
 335 tests passing across 13 test files.
