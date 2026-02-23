@@ -250,17 +250,17 @@ The ±0.20 stability threshold in `target_pass` vs `target_coarse_pass` classifi
 
 25 eval shards (124,772 entries), 5 concurrent jobs, all completed successfully.
 
-**Overall: 121,326 usable / 124,768 classified (97.2%), 3,442 rejected**
+**Overall: 121,326 usable / 124,772 evaluated (97.2%)**
 
 | Domain | global_pass | target_pass | target_coarse_pass | global_flip_pass | target_flip_pass | reject | **Usable** |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Empathy | 9,542 | 1,012 | 17,818 | 4 | 141 | 0 | **28,517** |
-| Coherence | 9,193 | 10,297 | 7,189 | 182 | 1,219 | 0 | **28,080** |
-| Multicultural | 8,953 | 6,621 | 8,767 | 241 | 1,866 | 0 | **26,448** |
-| Commonsense | 0 | 52 | 37,636 | 0 | 593 | 0 | **38,281** |
-| **Total** | **27,688** | **17,982** | **71,410** | **427** | **3,819** | **3,442** | **121,326** |
+| Empathy | 9,542 | 1,012 | 17,818 | 4 | 141 | 123 | **28,517** |
+| Coherence | 9,193 | 10,297 | 7,189 | 182 | 1,219 | 676 | **28,080** |
+| Multicultural | 8,953 | 6,621 | 8,767 | 241 | 1,866 | 2,382 | **26,448** |
+| Commonsense | 0 | 52 | 37,636 | 0 | 593 | 265 | **38,281** |
+| **Total** | **27,688** | **17,982** | **71,410** | **427** | **3,819** | **3,446** | **121,326** |
 
-Note: the 3,442 rejects were filtered during pair construction (margin ≤ 0.05) and do not appear in the final pairs.jsonl. The label counts above reflect the 121,326 emitted pairs. 4,246 pairs (3.5%) have `intent_followed=false` — these are flip_pass pairs where chosen/rejected were swapped.
+Multicultural accounts for 69% of rejects — the evaluator perceives smaller cultural quality differences than intended. 4,246 usable pairs (3.5%) have `intent_followed=false` (flip_pass pairs with swapped chosen/rejected).
 
 **V2 vs v1 comparison.** The v2 re-run with improved prompts produced notable shifts: target_pass increased from 13,516 to 17,982 (+33%), indicating better non-target preservation from the explicit NON-TARGET DIMENSIONS constraints. Total flip_pass decreased from 8,358 to 4,246 (−49%), indicating the generator more reliably moves scores in the intended direction. Multicultural target_flip_pass dropped from 6,786 to 1,866 (−73%) — the full cultural context in eval prompts and direction-aware score guidance reduced direction confusion.
 
