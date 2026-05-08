@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import csv
+import json
+import random
+from pathlib import Path
+
 from scripts.models import (
     ContrastiveDirection,
     DomainConfig,
@@ -10,6 +15,81 @@ from scripts.models import (
     Stage2Candidate,
     VariantType,
 )
+
+# ── Cultural drivers (eager-loaded at import) ─────────────────────────────
+
+MULTICULTURAL_DATA_DIR = Path("data/input/multicultural")
+
+
+def _read_norms() -> dict[str, list[str]]:
+    out: dict[str, list[str]] = {}
+    with open(MULTICULTURAL_DATA_DIR / "norms.csv", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            out.setdefault(row["country"], []).append(row["norm"])
+    return out
+
+
+def _read_prejudices() -> dict[tuple[str, str], list[str]]:
+    out: dict[tuple[str, str], list[str]] = {}
+    with open(MULTICULTURAL_DATA_DIR / "prejudices.csv", encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            key = (row["country"], row["valence"])
+            out.setdefault(key, []).append(row["prejudice"])
+    return out
+
+
+def _read_cultural_items() -> dict[str, dict[str, list[str]]]:
+    with open(MULTICULTURAL_DATA_DIR / "cultural_items.json", encoding="utf-8") as f:
+        return json.load(f)
+
+
+NORMS_BY_COUNTRY = _read_norms() if MULTICULTURAL_DATA_DIR.exists() else {}
+PREJUDICES_BY_COUNTRY = _read_prejudices() if MULTICULTURAL_DATA_DIR.exists() else {}
+CULTURAL_ITEMS = _read_cultural_items() if MULTICULTURAL_DATA_DIR.exists() else {}
+
+
+def _sample_drivers(
+    country_1: str,
+    country_2: str,
+    direction: ContrastiveDirection,
+    seed: int | None = None,
+) -> dict[str, str]:
+    """sample country-specific drivers for an improve or degrade variant."""
+    rng = random.Random(seed)
+
+    if direction == ContrastiveDirection.POSITIVE:
+        c1_norms = NORMS_BY_COUNTRY.get(country_1, [])
+        sampled_norms = rng.sample(c1_norms, min(2, len(c1_norms)))
+        pos = PREJUDICES_BY_COUNTRY.get((country_1, "positive"), [])
+        sampled_prej = rng.choice(pos) if pos else ""
+        c1_items = CULTURAL_ITEMS.get(country_1, {})
+        flat_items = [v for vals in c1_items.values() for v in vals]
+        sampled_items = rng.sample(flat_items, min(3, len(flat_items)))
+        return {
+            "drivers_label": f"REINFORCE country_1 ({country_1}) cultural value",
+            "drivers_norms": "\n".join(f"- {n}" for n in sampled_norms),
+            "drivers_prejudice_label": f"Positive prejudice about {country_1}",
+            "drivers_prejudice": sampled_prej,
+            "drivers_items_label": f"Concrete cultural items from {country_1}",
+            "drivers_items": ", ".join(sampled_items),
+        }
+
+    # NEGATIVE: cross-cultural contradiction tools
+    cross = country_2 if country_2 != country_1 else next(
+        (c for c in NORMS_BY_COUNTRY if c != country_1), country_1
+    )
+    cross_norms = NORMS_BY_COUNTRY.get(cross, [])
+    sampled_norms = rng.sample(cross_norms, min(2, len(cross_norms)))
+    neg = PREJUDICES_BY_COUNTRY.get((country_1, "negative"), [])
+    sampled_prej = rng.choice(neg) if neg else ""
+    return {
+        "drivers_label": f"CONTRADICT country_1 ({country_1}) using {cross}'s frame",
+        "drivers_norms": "\n".join(f"- {n}" for n in sampled_norms),
+        "drivers_prejudice_label": f"Negative prejudice about {country_1}",
+        "drivers_prejudice": sampled_prej,
+        "drivers_items_label": "",
+        "drivers_items": "",
+    }
 
 
 # ── Generation templates ──────────────────────────────────────────────────
@@ -283,6 +363,17 @@ When {direction_verb_ing} the continuation, use these cultural elements to make 
 rewrite {direction_qualifier} culturally grounded, specific, and authentic.
 """
 
+MULTICULTURAL_DRIVERS_BLOCK = """\
+
+CULTURAL DRIVERS — {drivers_label}:
+
+Norms to weave in (rephrase naturally, do not quote verbatim):
+{drivers_norms}
+
+{drivers_prejudice_label}: {drivers_prejudice}
+{drivers_items_section}\
+"""
+
 MULTICULTURAL_VERIFICATION_CONTEXT = """\
 
 CULTURAL CONTEXT:
@@ -380,6 +471,7 @@ def build_generation_prompt(
     turn_count: int,
     config: DomainConfig,
     domain_metadata: dict[str, str] | None = None,
+    enrich_drivers: bool = False,
 ) -> str:
     """select template by variant type and fill in prefix, continuation, and rubric."""
     # split into prefix + continuation (last `turn_count` messages)
@@ -514,6 +606,24 @@ def build_generation_prompt(
             direction_qualifier=direction_qualifier,
             **domain_metadata,
         )
+
+        if enrich_drivers:
+            drivers = _sample_drivers(
+                country_1=domain_metadata.get("country_1", ""),
+                country_2=domain_metadata.get("country_2", ""),
+                direction=candidate.contrastive_direction,
+                seed=hash(candidate.dialogue_id) & 0xFFFFFFFF,
+            )
+            items_section = (
+                f"\n{drivers['drivers_items_label']}: {drivers['drivers_items']}\n"
+                if drivers["drivers_items"]
+                else ""
+            )
+            cultural_context += MULTICULTURAL_DRIVERS_BLOCK.format(
+                drivers_items_section=items_section,
+                **drivers,
+            )
+
         # Insert before INSTRUCTIONS block
         instructions_marker = "\nINSTRUCTIONS:"
         idx = prompt.find(instructions_marker)
