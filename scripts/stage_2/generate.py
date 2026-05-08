@@ -76,6 +76,15 @@ def build_generation_entries(
             domain_metadata=candidate.domain_metadata,
         )
 
+        prefix_msgs = (
+            candidate.messages[:-turn_count]
+            if len(candidate.messages) > turn_count
+            else candidate.messages[:1]
+        )
+        expected_first_role = (
+            "assistant" if not prefix_msgs or prefix_msgs[-1].role == "user" else "user"
+        )
+
         custom_id = _make_custom_id(candidate)
 
         entry = BatchEntry(custom_id=custom_id, prompt=prompt)
@@ -89,6 +98,7 @@ def build_generation_entries(
             "direction": candidate.contrastive_direction.value,
             "turn_count": turn_count,
             "target_dimensions": candidate.target_dimensions,
+            "expected_first_role": expected_first_role,
         }
         if candidate.domain_metadata is not None:
             manifest_entry["domain_metadata"] = candidate.domain_metadata
@@ -151,6 +161,7 @@ def parse_generation_results(
     # parse batch outputs
     variants: list[Stage2Variant] = []
     failed = 0
+    failed_role = 0
 
     for output_file in sorted(batch_output_dir.glob("*.jsonl")):
         with open(output_file, encoding="utf-8") as f:
@@ -198,6 +209,19 @@ def parse_generation_results(
                     failed += 1
                     continue
 
+                # role validation: first role must match prefix tail's opposite,
+                # and roles must strictly alternate within the continuation
+                expected_first_role = meta.get("expected_first_role")
+                if expected_first_role and variant_messages[0].role != expected_first_role:
+                    failed_role += 1
+                    continue
+                if any(
+                    variant_messages[i].role == variant_messages[i - 1].role
+                    for i in range(1, len(variant_messages))
+                ):
+                    failed_role += 1
+                    continue
+
                 variant = Stage2Variant(
                     candidate_id=meta["dialogue_id"],
                     variant_id=f"var-{custom_id}",
@@ -211,8 +235,9 @@ def parse_generation_results(
                 variants.append(variant)
 
     logger.info(
-        "Parsed {} variants from batch outputs ({} failed)",
+        "Parsed {} variants from batch outputs ({} failed, {} bad role)",
         len(variants),
         failed,
+        failed_role,
     )
     return variants

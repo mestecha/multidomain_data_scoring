@@ -32,10 +32,11 @@ SCORING RUBRIC - improve ALL of these dimensions:
 INSTRUCTIONS:
 - Write exactly {turn_count} turn(s) as the improved continuation.
 - Keep the same speaker roles and general topic.
+- The first turn MUST have role="{expected_first_role}". Roles must strictly alternate.
 - Make the continuation clearly better on every dimension above.
 - Output ONLY the rewritten continuation turns as JSON:
 
-{{"continuation": [{{"role": "user", "content": "..."}}, {{"role": "assistant", "content": "..."}}]}}
+{{"continuation": [{{"role": "{expected_first_role}", "content": "..."}}, {{"role": "{expected_second_role}", "content": "..."}}]}}
 """
 
 GLOBAL_DEGRADE_TEMPLATE = """\
@@ -56,6 +57,7 @@ SCORING RUBRIC - weaken ALL of these dimensions:
 INSTRUCTIONS:
 - Write exactly {turn_count} turn(s) as the degraded continuation.
 - Keep the same speaker roles and general topic.
+- The first turn MUST have role="{expected_first_role}". Roles must strictly alternate.
 - Make the continuation clearly worse on every dimension above.
 - The result should still be a plausible dialogue, not gibberish.
 - The degradation should be subtle and natural-sounding, not obvious. \
@@ -63,7 +65,7 @@ A reasonable reader should need to think carefully to identify why the continuat
 - Avoid abrupt non-sequiturs, obviously rude responses, or incoherent text.
 - Output ONLY the rewritten continuation turns as JSON:
 
-{{"continuation": [{{"role": "user", "content": "..."}}, {{"role": "assistant", "content": "..."}}]}}
+{{"continuation": [{{"role": "{expected_first_role}", "content": "..."}}, {{"role": "{expected_second_role}", "content": "..."}}]}}
 """
 
 DIMENSION_TARGETED_TEMPLATE = """\
@@ -85,11 +87,12 @@ TARGET DIMENSIONS to {direction_verb}:
 INSTRUCTIONS:
 - Write exactly {turn_count} turn(s) as the modified continuation.
 - Keep the same speaker roles and general topic.
+- The first turn MUST have role="{expected_first_role}". Roles must strictly alternate.
 - Focus changes on the target dimensions listed above.
 {subtlety_constraint}\
 - Output ONLY the rewritten continuation turns as JSON:
 
-{{"continuation": [{{"role": "user", "content": "..."}}, {{"role": "assistant", "content": "..."}}]}}
+{{"continuation": [{{"role": "{expected_first_role}", "content": "..."}}, {{"role": "{expected_second_role}", "content": "..."}}]}}
 """
 
 
@@ -392,6 +395,11 @@ def build_generation_prompt(
     continuation_text = _format_messages(continuation_msgs)
     rubric = _build_rubric(config, candidate.target_dimensions)
 
+    expected_first_role = (
+        "assistant" if not prefix_msgs or prefix_msgs[-1].role == "user" else "user"
+    )
+    expected_second_role = "user" if expected_first_role == "assistant" else "assistant"
+
     direction_verb = (
         "improve"
         if candidate.contrastive_direction == ContrastiveDirection.POSITIVE
@@ -475,6 +483,8 @@ def build_generation_prompt(
         subtlety_constraint=subtlety_constraint,
         score_context=score_context,
         non_char_constraint=non_char_constraint,
+        expected_first_role=expected_first_role,
+        expected_second_role=expected_second_role,
     )
 
     # inject generation guidance for dimension-targeted variants

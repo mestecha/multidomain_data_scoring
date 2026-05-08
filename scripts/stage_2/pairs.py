@@ -89,6 +89,7 @@ def build_pairs(
     skipped_rejected = 0
     skipped_no_original = 0
     skipped_bad_ordering = 0
+    skipped_bad_role = 0
     difficulty_counts = {"easy": 0, "medium": 0, "hard": 0}
     label_counts: dict[str, int] = {label.value: 0 for label in PairLabel if label != PairLabel.REJECT}
 
@@ -136,6 +137,19 @@ def build_pairs(
         else:
             prefix_msgs = all_msgs[:1]
             original_continuation = all_msgs[1:] if len(all_msgs) > 1 else all_msgs
+
+        # continuations must start with the role opposite the prefix tail
+        expected_first_role = (
+            "assistant" if not prefix_msgs or prefix_msgs[-1].role == "user" else "user"
+        )
+        if (
+            not variant.variant_messages
+            or variant.variant_messages[0].role != expected_first_role
+            or not original_continuation
+            or original_continuation[0].role != expected_first_role
+        ):
+            skipped_bad_role += 1
+            continue
 
         if effective_direction == ContrastiveDirection.POSITIVE:
             chosen = variant.variant_messages
@@ -218,12 +232,13 @@ def build_pairs(
         label_counts[vr.label.value] += 1
 
     logger.info(
-        "Built {} pairs (skipped: {} no result, {} rejected, {} no original, {} bad ordering)",
+        "Built {} pairs (skipped: {} no result, {} rejected, {} no original, {} bad ordering, {} bad role)",
         len(pairs),
         skipped_no_result,
         skipped_rejected,
         skipped_no_original,
         skipped_bad_ordering,
+        skipped_bad_role,
     )
     logger.info(
         "Difficulty distribution: easy={}, medium={}, hard={}",
