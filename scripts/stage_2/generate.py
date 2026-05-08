@@ -52,6 +52,7 @@ def _sample_turn_count(distribution: dict[int, float] | None = None) -> int:
 def build_generation_entries(
     candidates: list[Stage2Candidate],
     config_map: dict | None = None,
+    enrich_drivers: bool = True,
 ) -> tuple[list[BatchEntry], list[dict]]:
     """build batch entries and manifest metadata for each candidate."""
     domains = config_map or DOMAINS
@@ -74,6 +75,7 @@ def build_generation_entries(
         prompt = build_generation_prompt(
             candidate, turn_count, config,
             domain_metadata=candidate.domain_metadata,
+            enrich_drivers=enrich_drivers,
         )
 
         prefix_msgs = (

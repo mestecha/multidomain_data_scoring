@@ -69,6 +69,7 @@ def step_generate(
     output_shard_dir: Path = GEN_SHARD_DIR,
     manifest_path: Path = MANIFEST_GEN_PATH,
     candidates_path: Path = CANDIDATES_PATH,
+    enrich_drivers: bool = True,
 ) -> None:
     logger.info("=" * 60)
     logger.info("STEP: GENERATE - Building generation batch shards")
@@ -87,9 +88,11 @@ def step_generate(
         for line in f:
             candidates.append(Stage2Candidate.model_validate_json(line.strip()))
 
-    logger.info("Loaded {} candidates", len(candidates))
+    logger.info("Loaded {} candidates (enrich_drivers={})", len(candidates), enrich_drivers)
 
-    batch_entries, manifest_items = build_generation_entries(candidates)
+    batch_entries, manifest_items = build_generation_entries(
+        candidates, enrich_drivers=enrich_drivers,
+    )
     write_shards(batch_entries, output_shard_dir)
     write_manifest(manifest_items, manifest_path)
 
@@ -210,6 +213,11 @@ def main() -> None:
         help="Minimum eval margin for pass (default: 0.05)",
     )
     parser.add_argument(
+        "--no-enrich-drivers",
+        action="store_true",
+        help="Disable cultural driver enrichment in generation prompts (default: enabled)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -239,11 +247,13 @@ def main() -> None:
     if args.max_samples:
         logger.info("Max samples: {}", args.max_samples)
 
+    enrich_drivers = not args.no_enrich_drivers
+
     if args.step == "select":
         step_select(domain=domain, max_samples=args.max_samples, splits=splits)
 
     elif args.step == "generate":
-        step_generate()
+        step_generate(enrich_drivers=enrich_drivers)
 
     elif args.step == "eval":
         step_eval()
@@ -253,7 +263,7 @@ def main() -> None:
 
     elif args.step == "all":
         step_select(domain=domain, max_samples=args.max_samples, splits=splits)
-        step_generate()
+        step_generate(enrich_drivers=enrich_drivers)
         # note: generate and eval steps produce shards for the
         # batch_runner. In a real run, you would submit shards between steps.
         logger.info(
