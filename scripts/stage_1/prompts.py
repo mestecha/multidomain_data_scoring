@@ -2,7 +2,57 @@
 
 from __future__ import annotations
 
+import csv
+from pathlib import Path
+
 from scripts.config import COHERENCE, EMPATHY
+
+# ── Multicultural qid lookups (eager-loaded at import) ────────────────────
+
+MULTICULTURAL_DATA_DIR = Path("data/input/multicultural")
+
+
+def _read_statement_to_qid() -> dict[str, str]:
+    out: dict[str, str] = {}
+    path = MULTICULTURAL_DATA_DIR / "statements.csv"
+    if not path.exists():
+        return out
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            out[row["statement"]] = row["qid"]
+    return out
+
+
+def _read_qid_info() -> dict[str, dict[str, str]]:
+    out: dict[str, dict[str, str]] = {}
+    path = MULTICULTURAL_DATA_DIR / "qid_meaning.csv"
+    if not path.exists():
+        return out
+    with open(path, encoding="utf-8") as f:
+        for row in csv.DictReader(f):
+            out[row["qid"]] = row
+    return out
+
+
+STATEMENT_TO_QID = _read_statement_to_qid()
+QID_INFO = _read_qid_info()
+
+
+def _qid_addendum(statement: str) -> str:
+    qid = STATEMENT_TO_QID.get(statement)
+    if not qid:
+        return ""
+    info = QID_INFO.get(qid)
+    if not info:
+        return ""
+    parts = [
+        f"\n   FOR THIS SPECIFIC VALUE ({qid}):",
+        f"   - Means: {info.get('means', '').strip()}",
+        f"   - Not confused with: {info.get('not_this', '').strip()}",
+        f"   - Shows up as: {info.get('shows_up_as', '').strip()}",
+        f"   - Does NOT show as: {info.get('dont_say', '').strip()}",
+    ]
+    return "\n".join(parts) + "\n"
 
 # =============================================================================
 # COHERENCE DOMAIN (co_)
@@ -146,7 +196,7 @@ Rate each aspect on a 0.0-1.0 scale using the anchored rubric below. Three dimen
    - Score ≤ 0.5 if speakers state the value abstractly but their behavior contradicts it
    - Score ≤ 0.5 if the value is mentioned in only one turn without follow-through
    REFLECTION (required before scoring ≥ 0.75): cite the specific turn(s) and quote a phrase that demonstrates the value. If you cannot cite a specific turn, score ≤ 0.5.
-
+{qid_addendum}
 2. CULTURAL SPECIFICITY (mu_cultural_specificity): Does the dialogue clearly reflect the distinct cultural backgrounds of both speakers — in their values, norms, or ways of expressing themselves — rather than sounding generic?
    - 0.0 = generic, culture-neutral, could be from anywhere
    - 0.5 = some cultural elements present, but could be more specific
@@ -200,12 +250,14 @@ def build_multicultural_prompt(
     statement: str,
     country_1: str,
     country_2: str,
+    enrich_qid: bool = False,
 ) -> str:
     return MULTICULTURAL_PROMPT.format(
         turns_text=turns_text,
         statement=statement,
         country_1=country_1,
         country_2=country_2,
+        qid_addendum=_qid_addendum(statement) if enrich_qid else "",
     )
 
 
