@@ -180,7 +180,7 @@ def build_pairs(
 
         metadata = PairMetadata(
             domain=original.domain,
-            split=Split.TRAIN,
+            split=original.split or Split.TRAIN,
             generation_model=variant.generation_model,
             turn_count=turn_count,
             difficulty=difficulty,

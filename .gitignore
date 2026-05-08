@@ -10,3 +10,6 @@ data.zip
 __pycache__/
 *.pyc
 *.egg-info/
+
+# local planning files
+tasks/

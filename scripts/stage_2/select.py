@@ -164,20 +164,36 @@ def select_candidates(
     entries: list[Stage1Entry],
     domain: DomainName | None = None,
     max_samples: int | None = None,
+    splits: set[str] | None = None,
+    dialogue_ids: set[str] | None = None,
 ) -> list[Stage2Candidate]:
-    """stratify train entries into quality tiers and assign contrastive direction."""
-    # filter to train split only
-    train_entries = [e for e in entries if e.split is None or e.split.value == "train"]
+    """stratify entries into quality tiers and assign contrastive direction.
+
+    Args:
+        entries: stage 1 entries to select from.
+        domain: optional domain filter.
+        max_samples: cap on total candidates returned.
+        splits: set of split values to include (e.g. {"train"}, {"test"},
+            {"train", "test"}).  None defaults to {"train"} for backward
+            compatibility.
+        dialogue_ids: optional allowlist of dialogue IDs; when provided only
+            those IDs are processed.
+    """
+    active_splits = splits if splits is not None else {"train"}
+    filtered = [e for e in entries if e.split is None or e.split.value in active_splits]
+
+    if dialogue_ids is not None:
+        filtered = [e for e in filtered if e.dialogue_id in dialogue_ids]
 
     if domain is not None:
-        train_entries = [e for e in train_entries if e.domain == domain]
+        filtered = [e for e in filtered if e.domain == domain]
 
-    logger.info("Selecting from {} train entries", len(train_entries))
+    logger.info("Selecting from {} entries (splits={})", len(filtered), active_splits)
 
     candidates: list[Stage2Candidate] = []
     tier_counts = {"low": 0, "medium": 0, "high": 0}
 
-    for entry in train_entries:
+    for entry in filtered:
         domain_cfg = DOMAINS[entry.domain]
         char_dims = domain_cfg.characterizing_dims
 
@@ -254,6 +270,19 @@ def main() -> None:
         help="Maximum number of candidates to select",
     )
     parser.add_argument(
+        "--split",
+        type=str,
+        default="train",
+        choices=["train", "test", "all"],
+        help="Which splits to include: train (default), test, or all",
+    )
+    parser.add_argument(
+        "--dialogue-ids-file",
+        type=str,
+        default=None,
+        help="Path to file with dialogue IDs to process (one per line)",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
@@ -276,6 +305,14 @@ def main() -> None:
 
     domain_filter = DomainName(args.domain) if args.domain else None
 
+    splits: set[str] = {"train", "test"} if args.split == "all" else {args.split}
+
+    dialogue_ids: set[str] | None = None
+    if args.dialogue_ids_file:
+        with open(args.dialogue_ids_file, encoding="utf-8") as fh:
+            dialogue_ids = {line.strip() for line in fh if line.strip()}
+        logger.info("Loaded {} dialogue IDs from {}", len(dialogue_ids), args.dialogue_ids_file)
+
     entries = load_stage1_entries(input_path)
     logger.info("Loaded {} Stage 1 entries", len(entries))
 
@@ -283,6 +320,8 @@ def main() -> None:
         entries,
         domain=domain_filter,
         max_samples=args.max_samples,
+        splits=splits,
+        dialogue_ids=dialogue_ids,
     )
 
     write_candidates(candidates, Path(args.output))

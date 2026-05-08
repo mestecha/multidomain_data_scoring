@@ -345,7 +345,7 @@ def step_merge() -> None:
 
 def step_split() -> None:
     logger.info("=" * 60)
-    logger.info("STEP: SPLIT - Assigning train/val/test splits")
+    logger.info("STEP: SPLIT - Assigning train/test splits")
     logger.info("=" * 60)
 
     from scripts.split import split_stage1_file

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from scripts.models import (
     DimensionDef,
     DomainConfig,
@@ -235,8 +237,10 @@ CS_RELATION_TO_DIM: dict[str, str] = {
 # Stage 2 continuation length distribution
 TURN_DISTRIBUTION: dict[int, float] = {1: 0.15, 3: 0.40, 5: 0.30, 7: 0.15}
 
-# Train/val/test split ratios
-SPLIT_RATIOS: dict[str, float] = {"train": 0.75, "val": 0.10, "test": 0.15}
+# Train/test split ratios
+SPLIT_RATIOS: dict[str, float] = {"train": 0.90, "test": 0.10}
+
+MULTICULTURAL_TEST_DIR: Path = Path("data/input/multicultural/countries/test")
 
 # Sampling turn count buckets (inclusive bounds)
 TURN_BUCKETS: list[tuple[int, int]] = [(2, 6), (7, 10), (11, 16), (17, 999)]

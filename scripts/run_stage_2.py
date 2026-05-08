@@ -41,11 +41,12 @@ def _load_originals(path: Path) -> dict[str, Stage1Entry]:
 def step_select(
     domain: str | None,
     max_samples: int | None,
+    splits: set[str] | None = None,
     input_path: Path = STAGE_1_PATH,
     output_path: Path = CANDIDATES_PATH,
 ) -> None:
     logger.info("=" * 60)
-    logger.info("STEP: SELECT - Choosing candidates from Stage 1 train data")
+    logger.info("STEP: SELECT - Choosing candidates from Stage 1 data")
     logger.info("=" * 60)
 
     from scripts.stage_2.select import (
@@ -59,7 +60,7 @@ def step_select(
 
     domain_filter = DomainName(domain) if domain else None
     candidates = select_candidates(
-        entries, domain=domain_filter, max_samples=max_samples
+        entries, domain=domain_filter, max_samples=max_samples, splits=splits
     )
     write_candidates(candidates, output_path)
 
@@ -196,6 +197,13 @@ def main() -> None:
         help="Max candidates to select (select step only)",
     )
     parser.add_argument(
+        "--split",
+        type=str,
+        default="all",
+        choices=["train", "test", "all"],
+        help="Which splits to include in select step (default: all)",
+    )
+    parser.add_argument(
         "--margin-threshold",
         type=float,
         default=0.05,
@@ -220,17 +228,19 @@ def main() -> None:
     )
 
     domain = None if args.domain == "all" else args.domain
+    splits: set[str] = {"train", "test"} if args.split == "all" else {args.split}
 
     logger.info("=" * 60)
     logger.info("STAGE 2 CONTRASTIVE PAIR GENERATION PIPELINE")
     logger.info("=" * 60)
     logger.info("Step: {}", args.step)
     logger.info("Domain: {}", args.domain)
+    logger.info("Split: {}", args.split)
     if args.max_samples:
         logger.info("Max samples: {}", args.max_samples)
 
     if args.step == "select":
-        step_select(domain=domain, max_samples=args.max_samples)
+        step_select(domain=domain, max_samples=args.max_samples, splits=splits)
 
     elif args.step == "generate":
         step_generate()
@@ -242,7 +252,7 @@ def main() -> None:
         step_pairs(margin_threshold=args.margin_threshold)
 
     elif args.step == "all":
-        step_select(domain=domain, max_samples=args.max_samples)
+        step_select(domain=domain, max_samples=args.max_samples, splits=splits)
         step_generate()
         # note: generate and eval steps produce shards for the
         # batch_runner. In a real run, you would submit shards between steps.

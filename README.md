@@ -1,6 +1,6 @@
 # Multi-Domain Data Scoring 
 
-Last updated: 2026-02-23
+Last updated: 2026-03-12
 
 
 ## Purpose
@@ -17,19 +17,21 @@ Raw dialogues (4 corpora, ~113k total)
     ↓ Stage 1: GPT judge scores each on its domain's dimensions
 51,264 scored entries (stage_1.jsonl, all 23 dims per entry)
     ↓ stratified split (seed=42)
-38,447 train  ·  5,127 val  ·  7,690 test
-    ↓                ↓              ↓
-Stage 2          HELD OUT       HELD OUT
-    ↓
-~125k candidates (3-4 variants per dialogue)
+46,137 train  ·  5,127 test
+    ↓                ↓
+Stage 2          Stage 2 (test pairs = ground truths)
+    ↓                ↓
+~167k candidates (3-4 variants per dialogue)
     ↓ GPT batch API: generate contrastive rewrites
     ↓ GPT batch API: evaluate both versions scored independently
     ↓ 6-label classification (margin > 0.05)
     ↓ flip-pass recovery for opposite-direction variants
-121,326 preference pairs (stage_2.jsonl)
+161,690 preference pairs (stage_2.jsonl)
+    ↓
+145,522 train pairs  ·  16,168 test pairs (10.0%)
 ```
 
-Val and test splits are held out from Stage 2 for downstream model evaluation.
+Stage 2 processes all splits. Test pairs carry `split: "test"` in metadata and serve as ground truths for model evaluation.
 
 
 ## Stage 1 — Scoring
@@ -57,7 +59,7 @@ Some dimensions are marked as "characterizing" — these are the ones that defin
 | co_mutual_grounding | 0.663 | 0.299 | |
 | co_overall_coherence_score | 0.712 | 0.281 | |
 
-The characterizing average across the 9,597 train entries is 0.739 (std 0.268). Most coherence dialogues score high, so Stage 2 predominantly degrades them to create contrastive pairs.
+The characterizing average across the 11,517 train entries is 0.738 (std 0.267). Most coherence dialogues score high, so Stage 2 predominantly degrades them to create contrastive pairs.
 
 **Empathy** has 6 dimensions, also 1-5 → 0-1. Two are characterizing:
 
@@ -70,7 +72,7 @@ The characterizing average across the 9,597 train entries is 0.739 (std 0.268). 
 | em_helpful_response | 0.204 | 0.236 | |
 | em_overall_empathy_score | 0.249 | 0.245 | |
 
-The characterizing average is 0.284 (std 0.237). Empathy dialogues score low across the board — the source corpus contains many dismissive or unhelpful responses, making it ideal for generating improved variants.
+The characterizing average is 0.286 (std 0.238). Empathy dialogues score low across the board — the source corpus contains many dismissive or unhelpful responses, making it ideal for generating improved variants.
 
 **Commonsense** has 6 dimensions on a native 0-1 scale. Four are characterizing — each maps to specific ATOMIC commonsense relations:
 
@@ -85,19 +87,19 @@ The characterizing average is 0.284 (std 0.237). Empathy dialogues score low acr
 
 The characterizing average is 0.238 (std 0.142). Causality scores extremely low (mean 0.138), while consistency and reaction score roughly double that. The non-characterizing dimensions (coherence at 0.917, empathy at 0.608) are high — these dialogues are coherent and somewhat empathetic, they just lack commonsense grounding.
 
-The 4-characterizing-dim distribution across the 9,647 train entries:
+The 4-characterizing-dim distribution across the 11,576 train entries:
 
 ```
 avg score    count    pct
-0.0 – 0.1    1,488   15.4%  ███████████████
-0.1 – 0.2    2,340   24.3%  ████████████████████████
-0.2 – 0.3    2,606   27.0%  ███████████████████████████
-0.3 – 0.4    1,925   20.0%  ████████████████████
-0.4 – 0.5      738    7.7%  ████████
-0.5 – 0.6      407    4.2%  ████
-0.6 – 0.7      118    1.2%  █
-0.7 – 0.8       23    0.2%
-0.8 – 0.9        2    0.0%
+0.0 – 0.1    1,799   15.5%  ███████████████
+0.1 – 0.2    2,768   23.9%  ████████████████████████
+0.2 – 0.3    3,140   27.1%  ███████████████████████████
+0.3 – 0.4    2,320   20.0%  ████████████████████
+0.4 – 0.5      898    7.8%  ████████
+0.5 – 0.6      481    4.2%  ████
+0.6 – 0.7      143    1.2%  █
+0.7 – 0.8       24    0.2%
+0.8 – 0.9        3    0.0%
 ```
 
 86.6% of entries fall below the 0.4 low-tier threshold. This heavy left skew means nearly all commonsense variants will be improvements — the originals are weak on commonsense and need strengthening.
@@ -118,20 +120,20 @@ The characterizing average is 0.778 (std 0.154). These dialogues are already cul
 
 51,264 scored entries total. 14 batch failures were held out (99.97% success rate).
 
-| Domain | Total | Train | Val | Test |
-|--------|------:|------:|----:|-----:|
-| Coherence | 12,797 | 9,597 | 1,280 | 1,920 |
-| Empathy | 12,789 | 9,592 | 1,279 | 1,918 |
-| Commonsense | 12,862 | 9,647 | 1,286 | 1,929 |
-| Multicultural | 12,816 | 9,611 | 1,282 | 1,923 |
-| **Total** | **51,264** | **38,447** | **5,127** | **7,690** |
+| Domain | Total | Train | Test |
+|--------|------:|------:|-----:|
+| Coherence | 12,797 | 11,517 | 1,280 |
+| Empathy | 12,789 | 11,510 | 1,279 |
+| Commonsense | 12,862 | 11,576 | 1,286 |
+| Multicultural | 12,816 | 11,534 | 1,282 |
+| **Total** | **51,264** | **46,137** | **5,127** |
 
-Split is 75/10/15, stratified by domain, seed=42.
+Split is 90/10, stratified by domain, seed=42.
 
 
 ## Stage 2 — Contrastive Variant Generation
 
-Stage 2 operates only on the 38,447 train entries. Each dialogue produces multiple variant candidates — 3 for non-commonsense domains (1 global + 2 dimension-targeted) and 4 for commonsense (1 per characterizing dim) — yielding ~124,988 total candidates. Each candidate is a contrastive rewrite that is either better or worse than the original on specific dimensions. After independent evaluation by a second LLM judge, the evaluated pairs become DPO training data.
+Stage 2 processes all 51,264 entries across both splits. Each dialogue produces multiple variant candidates — 3 for non-commonsense domains (1 global + 2 dimension-targeted) and 4 for commonsense (1 per characterizing dim) — yielding ~166,654 total candidates. Each candidate is a contrastive rewrite that is either better or worse than the original on specific dimensions. After independent evaluation by a second LLM judge, the evaluated pairs become DPO training data. Each pair inherits the split from its source dialogue — test pairs serve as ground truths for model evaluation.
 
 ### Tier Classification
 
@@ -150,10 +152,10 @@ The resulting tier distribution reflects each domain's score profile:
 
 | Domain | Low | Medium | High | Char. avg |
 |--------|----:|-------:|-----:|:-:|
-| Coherence | 1,822 (19.0%) | 2,036 (21.2%) | 5,739 (59.8%) | 0.739 |
-| Empathy | 7,133 (74.4%) | 1,772 (18.5%) | 687 (7.2%) | 0.284 |
-| Commonsense | 8,359 (86.6%) | 1,263 (13.1%) | 25 (0.3%) | 0.238 |
-| Multicultural | 167 (1.7%) | 2,188 (22.8%) | 7,256 (75.5%) | 0.778 |
+| Coherence | 2,421 (18.9%) | 2,773 (21.7%) | 7,603 (59.4%) | 0.738 |
+| Empathy | 9,452 (73.9%) | 2,403 (18.8%) | 934 (7.3%) | 0.286 |
+| Commonsense | 11,139 (86.6%) | 1,691 (13.1%) | 32 (0.2%) | 0.238 |
+| Multicultural | 219 (1.7%) | 2,946 (23.0%) | 9,651 (75.3%) | 0.777 |
 
 Coherence and multicultural are high-quality corpora — their pairs come mainly from degrading good dialogues. Empathy and commonsense are low-quality — their pairs come from improving weak dialogues. This is the natural consequence of the source data, not a design choice.
 
@@ -161,10 +163,10 @@ The direction split confirms this pattern:
 
 | Domain | Positive (improve) | Negative (degrade) |
 |--------|---:|---:|
-| Coherence | 2,860 (29.8%) | 6,737 (70.2%) |
-| Empathy | 8,299 (86.5%) | 1,293 (13.5%) |
-| Commonsense | 9,401 (97.4%) | 246 (2.6%) |
-| Multicultural | 916 (9.5%) | 8,695 (90.5%) |
+| Coherence | 3,809 (29.8%) | 8,988 (70.2%) |
+| Empathy | 11,047 (86.4%) | 1,742 (13.6%) |
+| Commonsense | 12,529 (97.4%) | 333 (2.6%) |
+| Multicultural | 1,216 (9.5%) | 11,600 (90.5%) |
 
 ### Multi-Variant Candidate Volume
 
@@ -172,13 +174,13 @@ Each dialogue fans out to multiple candidates. The variant type determines how t
 
 | Domain | Dialogues | Variants/dlg | Total candidates | global | dimension_targeted |
 |--------|----------:|:---:|---:|---:|---:|
-| Coherence | 9,597 | 3 | 28,791 | 9,597 | 19,194 |
-| Empathy | 9,592 | 3 | 28,776 | 9,592 | 19,184 |
-| Multicultural | 9,611 | 3 | 28,833 | 9,611 | 19,222 |
-| Commonsense | 9,647 | 4 | 38,588 | — | 38,588 |
-| **Total** | **38,447** | | **~124,988** | **28,800** | **96,188** |
+| Coherence | 12,797 | 3 | 38,391 | 12,797 | 25,594 |
+| Empathy | 12,789 | 3 | 38,367 | 12,789 | 25,578 |
+| Multicultural | 12,816 | 3 | 38,448 | 12,816 | 25,632 |
+| Commonsense | 12,862 | 4 | 51,448 | — | 51,448 |
+| **Total** | **51,264** | | **~166,654** | **38,402** | **128,252** |
 
-For non-commonsense domains, each dialogue's global candidate uses GLOBAL_IMPROVE or GLOBAL_DEGRADE based on the tier, and the 2 dimension-targeted candidates each focus on a single characterizing dim. Commonsense produces only dimension-targeted candidates — one per dim, no global — because isolating a single commonsense reasoning skill per pair produces cleaner DPO signal. Of the 9,647 commonsense train entries, 2,395 (24.8%) have gold ATOMIC relation labels preserved in domain_metadata as reference, though targeting now covers all 4 dimensions regardless.
+For non-commonsense domains, each dialogue's global candidate uses GLOBAL_IMPROVE or GLOBAL_DEGRADE based on the tier, and the 2 dimension-targeted candidates each focus on a single characterizing dim. Commonsense produces only dimension-targeted candidates — one per dim, no global — because isolating a single commonsense reasoning skill per pair produces cleaner DPO signal. Of the 12,862 commonsense entries, ~25% have gold ATOMIC relation labels preserved in domain_metadata as reference, though targeting now covers all 4 dimensions regardless.
 
 ### Generation Prompt Structure
 
@@ -192,24 +194,19 @@ All four domains include a GENERATION GUIDANCE block with concrete writing strat
 
 Real example prompts for all four domains are saved in `data/stage_2_example_prompts.txt`.
 
-The ~125k candidates are written to 25 shards of ~5,000 entries each for batch API submission.
+The ~167k candidates are written to shards of ~5,000 entries each for batch API submission.
 
 ### Generation Results
 
-Results from v2 re-run with improved prompts. V1 outputs in `data/stage_2/backup/`.
-
-25 shards submitted to Azure OpenAI batch API (gpt-5.1-batch), 5 concurrent jobs, all completed successfully.
+34 shards submitted to Azure OpenAI batch API (gpt-5.1-batch) in two runs (25 original + 9 for previously uncovered dialogues), 5 concurrent jobs each, all completed successfully.
 
 | Metric | Value |
 |--------|-------|
-| Manifest entries | 124,967 |
-| Shards submitted | 25 (5,000 entries each, last shard 4,967) |
-| Batch outputs received | 124,961 (6 no response) |
-| Null content | 169 |
-| Skipped (<2 messages) | 20 |
-| **Forwarded to eval** | **124,772** |
+| Manifest entries | 166,657 |
+| Shards submitted | 34 (5,000 entries each) |
+| **Forwarded to eval** | **166,365** |
 
-The parser handles malformed responses (null content, list-type content, capitalized roles). Of 124,967 manifest entries, 195 (0.16%) did not reach eval: 6 missing from batch output, 169 null content, 20 skipped for insufficient messages.
+The parser handles malformed responses (null content, list-type content, capitalized roles). V1 outputs in `data/stage_2/backup/`.
 
 ### Evaluation
 
@@ -234,69 +231,67 @@ The ±0.20 stability threshold in `target_pass` vs `target_coarse_pass` classifi
 
 ### Evaluation Results
 
-25 eval shards (124,772 entries), 5 concurrent jobs, all completed successfully.
+34 eval shards (166,365 entries) in two runs, 5 concurrent jobs each, all completed successfully.
 
-**Overall: 121,326 usable / 124,772 submitted to eval (97.2%)**
+**Overall: 161,690 usable pairs**
 
-| Domain | global_pass | target_pass | target_coarse_pass | global_flip_pass | target_flip_pass | reject | **Usable** |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| Empathy | 9,542 | 1,012 | 17,818 | 4 | 141 | 123 | **28,517** |
-| Coherence | 9,193 | 10,297 | 7,189 | 182 | 1,219 | 676 | **28,080** |
-| Multicultural | 8,953 | 6,621 | 8,767 | 241 | 1,866 | 2,382 | **26,448** |
-| Commonsense | 0 | 52 | 37,636 | 0 | 593 | 265 | **38,281** |
-| **Total** | **27,688** | **17,982** | **71,410** | **427** | **3,819** | **3,446** | **121,326** |
+| Domain | global_pass | target_pass | target_coarse_pass | global_flip_pass | target_flip_pass | **Usable** |
+|---|---:|---:|---:|---:|---:|---:|
+| Empathy | 12,724 | 1,377 | 23,729 | 4 | 199 | **38,033** |
+| Coherence | 12,243 | 13,723 | 9,553 | 241 | 1,670 | **37,430** |
+| Multicultural | 11,954 | 8,820 | 11,648 | 300 | 2,470 | **35,192** |
+| Commonsense | 0 | 73 | 50,149 | 0 | 813 | **51,035** |
+| **Total** | **36,921** | **23,993** | **95,079** | **545** | **5,152** | **161,690** |
 
-Multicultural accounts for 69% of rejects — the evaluator perceives smaller cultural quality differences than intended. The 3,446 reject total includes 4 entries that received no batch response (true classification rejects: 3,442). 4,246 usable pairs (3.5%) have `intent_followed=false` (flip_pass pairs with swapped chosen/rejected).
-
-**V2 vs v1 comparison.** V2 changed both prompts and margin threshold (v1 used 0.20, v2 uses 0.05), so some shifts are confounded. Total flip_pass decreased from 8,358 to 4,246 (−49%) — this is a genuine prompt improvement because a lower threshold would admit *more* flips, not fewer. Multicultural target_flip_pass dropped from 6,786 to 1,866 (−73%), confirming that full cultural context and direction-aware guidance reduced direction confusion. Target_pass increased from 13,516 to 17,982 (+33%), which partly reflects the lower threshold admitting more pairs and partly reflects better non-target preservation from explicit constraints.
+5,697 usable pairs (3.5%) have `intent_followed=false` (flip_pass pairs with swapped chosen/rejected).
 
 The variant type distribution across domains:
 
 | Domain | Global improve | Global degrade | Dimension targeted | Total |
 |--------|---:|---:|---:|---:|
-| Empathy | 8,256 | 1,290 | 18,971 | 28,517 |
-| Coherence | 2,854 | 6,521 | 18,705 | 28,080 |
-| Multicultural | 916 | 8,278 | 17,254 | 26,448 |
-| Commonsense | — | — | 38,281 | 38,281 |
-| **Total** | **12,026** | **16,089** | **93,211** | **121,326** |
+| Empathy | 10,991 | 1,737 | 25,305 | 38,033 |
+| Coherence | 3,803 | 8,681 | 24,946 | 37,430 |
+| Multicultural | 1,214 | 11,040 | 22,938 | 35,192 |
+| Commonsense | — | — | 51,035 | 51,035 |
+| **Total** | **16,008** | **21,458** | **124,224** | **161,690** |
 
 Within dimension-targeted pairs, the per-dimension breakdown:
 
 | Dimension | target_pass | target_coarse_pass | target_flip_pass | Total |
 |-----------|---:|---:|---:|---:|
-| co_logical_consistency | 5,605 | 3,483 | 385 | 9,473 |
-| co_topic_coherence | 4,692 | 3,706 | 834 | 9,232 |
-| em_emotional_awareness | 760 | 8,743 | 19 | 9,522 |
-| em_perspective_taking | 252 | 9,075 | 122 | 9,449 |
-| mu_cultural_specificity | 5,410 | 3,600 | 108 | 9,118 |
-| mu_cultural_value | 1,211 | 5,167 | 1,758 | 8,136 |
-| cs_causality | 23 | 9,509 | 78 | 9,610 |
-| cs_consistency | 10 | 9,448 | 125 | 9,583 |
-| cs_desire | 11 | 9,366 | 208 | 9,585 |
-| cs_reaction | 8 | 9,313 | 182 | 9,503 |
-| **Total** | **17,982** | **71,410** | **3,819** | **93,211** |
+| co_logical_consistency | 7,492 | 4,610 | 533 | 12,635 |
+| co_topic_coherence | 6,231 | 4,943 | 1,137 | 12,311 |
+| em_emotional_awareness | 1,033 | 11,632 | 30 | 12,695 |
+| em_perspective_taking | 344 | 12,097 | 169 | 12,610 |
+| mu_cultural_specificity | 7,185 | 4,804 | 146 | 12,135 |
+| mu_cultural_value | 1,635 | 6,844 | 2,324 | 10,803 |
+| cs_causality | 31 | 12,674 | 105 | 12,810 |
+| cs_consistency | 16 | 12,595 | 168 | 12,779 |
+| cs_desire | 15 | 12,473 | 289 | 12,777 |
+| cs_reaction | 11 | 12,407 | 251 | 12,669 |
+| **Total** | **23,993** | **95,079** | **5,152** | **124,224** |
 
 Pair difficulty is based on the margin between chosen and rejected scores:
 
 | Domain | Easy (≥ 0.30) | Medium (0.15–0.30) | Hard (< 0.15) | Total |
 |--------|---:|---:|---:|---:|
-| Empathy | 27,022 (94.8%) | 1,046 (3.7%) | 449 (1.6%) | 28,517 |
-| Coherence | 19,036 (67.8%) | 4,748 (16.9%) | 4,296 (15.3%) | 28,080 |
-| Commonsense | 35,183 (91.9%) | 1,749 (4.6%) | 1,349 (3.5%) | 38,281 |
-| Multicultural | 13,162 (49.8%) | 8,270 (31.3%) | 5,016 (19.0%) | 26,448 |
-| **Total** | **94,403 (77.8%)** | **15,813 (13.0%)** | **11,110 (9.2%)** | **121,326** |
+| Empathy | 35,991 (94.6%) | 1,432 (3.8%) | 610 (1.6%) | 38,033 |
+| Coherence | 25,299 (67.6%) | 6,378 (17.0%) | 5,753 (15.4%) | 37,430 |
+| Commonsense | 46,897 (91.9%) | 2,336 (4.6%) | 1,802 (3.5%) | 51,035 |
+| Multicultural | 17,642 (50.1%) | 10,900 (31.0%) | 6,650 (18.9%) | 35,192 |
+| **Total** | **125,829 (77.8%)** | **21,046 (13.0%)** | **14,815 (9.2%)** | **161,690** |
 
-Multicultural is the hardest domain (50% easy, 19% hard). Coherence shifted from 88% easy (v1) to 68% (v2) — both subtler degradation prompts and the lower margin threshold (0.05 vs 0.20) contribute, since the lower threshold admits more small-margin pairs classified as medium or hard.
+Multicultural is the hardest domain (50% easy, 19% hard).
 
 The contrastive direction shows which side of each pair was chosen:
 
 | Domain | Positive (variant is chosen) | Negative (original is chosen) | Total |
 |--------|---:|---:|---:|
-| Empathy | 24,869 (87.2%) | 3,648 (12.8%) | 28,517 |
-| Coherence | 9,915 (35.3%) | 18,165 (64.7%) | 28,080 |
-| Commonsense | 37,628 (98.3%) | 653 (1.7%) | 38,281 |
-| Multicultural | 4,362 (16.5%) | 22,086 (83.5%) | 26,448 |
-| **Total** | **76,774 (63.3%)** | **44,552 (36.7%)** | **121,326** |
+| Empathy | 32,946 (86.6%) | 5,087 (13.4%) | 38,033 |
+| Coherence | 11,390 (30.4%) | 26,040 (69.6%) | 37,430 |
+| Commonsense | 49,863 (97.7%) | 1,172 (2.3%) | 51,035 |
+| Multicultural | 3,154 (9.0%) | 32,038 (91.0%) | 35,192 |
+| **Total** | **97,353 (60.2%)** | **64,337 (39.8%)** | **161,690** |
 
 Empathy and commonsense originals score low → variants improve → variant is chosen. Coherence and multicultural originals score high → variants degrade → original is chosen.
 
@@ -304,16 +299,16 @@ Average characterizing dimension scores across all pairs:
 
 | Domain | Dimension | Original avg | Variant avg | Shift |
 |--------|-----------|:---:|:---:|:---:|
-| Coherence | co_topic_coherence | 0.761 | 0.801 | +0.040 |
-| Coherence | co_logical_consistency | 0.717 | 0.646 | -0.071 |
-| Empathy | em_emotional_awareness | 0.304 | 0.857 | +0.553 |
-| Empathy | em_perspective_taking | 0.262 | 0.835 | +0.573 |
-| Commonsense | cs_causality | 0.137 | 0.892 | +0.755 |
-| Commonsense | cs_consistency | 0.317 | 0.905 | +0.588 |
-| Commonsense | cs_reaction | 0.333 | 0.877 | +0.544 |
+| Coherence | co_topic_coherence | 0.759 | 0.800 | +0.041 |
+| Coherence | co_logical_consistency | 0.715 | 0.646 | -0.069 |
+| Empathy | em_emotional_awareness | 0.305 | 0.856 | +0.551 |
+| Empathy | em_perspective_taking | 0.264 | 0.835 | +0.571 |
+| Commonsense | cs_causality | 0.137 | 0.892 | +0.756 |
+| Commonsense | cs_consistency | 0.317 | 0.904 | +0.587 |
+| Commonsense | cs_reaction | 0.335 | 0.877 | +0.542 |
 | Commonsense | cs_desire | 0.158 | 0.891 | +0.733 |
-| Multicultural | mu_cultural_value | 0.708 | 0.708 | -0.000 |
-| Multicultural | mu_cultural_specificity | 0.858 | 0.518 | -0.340 |
+| Multicultural | mu_cultural_value | 0.708 | 0.706 | -0.002 |
+| Multicultural | mu_cultural_specificity | 0.857 | 0.514 | -0.343 |
 
 Empathy and commonsense show large positive shifts. Coherence shows mixed shifts — subtler prompts produce nuanced changes rather than uniformly crushing all dimensions. Multicultural mu_cultural_specificity shifts clearly (-0.340) while mu_cultural_value stays flat — the evaluator detects specificity changes but not value changes.
 
@@ -321,7 +316,7 @@ Empathy and commonsense show large positive shifts. Coherence shows mixed shifts
 
 Standard labels: positive-direction → variant is chosen; negative-direction → original is chosen. Flip labels: chosen/rejected are swapped; `contrast.intent_followed` is set to false.
 
-Each pair carries a difficulty label (easy ≥ 0.30, medium 0.15–0.30, hard < 0.15) and a sequential ID (`S2D-000001` through `S2D-121326`). Score ordering is validated before emission — 0 pairs skipped for bad ordering.
+Each pair carries a difficulty label (easy ≥ 0.30, medium 0.15–0.30, hard < 0.15) and a sequential ID (`S2D-000001` through `S2D-161690`). Score ordering is validated before emission — 0 pairs skipped for bad ordering.
 
 
 ## Changes
@@ -330,7 +325,7 @@ The pipeline went through several data-level fixes before reaching its current s
 
 On the content side, generation and eval prompts now receive 15 cultural metadata fields for multicultural entries, backtracked from the raw CSV via each dialogue's uid. Gold ATOMIC relation labels for ~25% of commonsense dialogues are loaded at merge time into domain_metadata. cs_reaction and cs_desire were promoted to characterizing dimensions, enabling 4-dim full-coverage targeting for commonsense.
 
-Structurally, each dialogue now produces 3–4 candidates (a 3.25x increase to ~125k) with custom IDs refactored to `s2g-{id}-{gimp|gdeg|dt-{dim}}` to prevent collisions. "verify/verification" was renamed to "eval/evaluation" across the codebase, `data/output/` became `data/stage_1/`, and compound pair IDs were simplified to sequential `S2D-{n:06d}`.
+Structurally, each dialogue now produces 3–4 candidates (a 3.25x increase to ~167k) with custom IDs refactored to `s2g-{id}-{gimp|gdeg|dt-{dim}}` to prevent collisions. "verify/verification" was renamed to "eval/evaluation" across the codebase, `data/output/` became `data/stage_1/`, and compound pair IDs were simplified to sequential `S2D-{n:06d}`.
 
 The v2 prompt quality pass fixed 17 issues across 3 review rounds with 28 new tests, followed by a full stage 2 re-run. Generation prompts gained direction-aware score context with floor/ceiling magnitude guidance, non-target dimension constraints, subtlety constraints on all degrade variants, per-domain writing strategies, and subtler commonsense degrade approaches. Multicultural prompts received explicit direction qualifiers ("more/less culturally grounded") and cultural context positioned before instructions. Eval prompts gained five-level score anchoring (0.0–1.0) and prefix-continuation reasoning. Across both, pipe notation was replaced with explicit JSON role objects.
 
@@ -339,7 +334,7 @@ The v2 prompt quality pass fixed 17 issues across 3 review rounds with 28 new te
 
 76.6% of commonsense dialogues have exactly 5 messages. When continuation length exceeds the original, the fallback uses a 1-message prefix, so generated variants may not meaningfully correspond to the original. Separately, Stage 2 eval uses a single-continuation format with score anchoring while Stage 1 uses domain-specific rubrics — this asymmetry is by design (independent validation) but could affect pass rates.
 
-The label distribution is dominated by target_coarse_pass at 71,410 pairs (59%), which carry valid target signal but noisy non-target behavior. DPO training may want to weight by label. Another 4,246 pairs (3.5%) are flip_pass with reversed contrastive direction, and mu_cultural_value has the highest flip rate at 22%.
+The label distribution is dominated by target_coarse_pass at 95,079 pairs (59%), which carry valid target signal but noisy non-target behavior. DPO training may want to weight by label. Another 5,697 pairs (3.5%) are flip_pass with reversed contrastive direction, and mu_cultural_value has the highest flip rate at 22%.
 
 Margin threshold sensitivity varies by domain:
 
@@ -365,7 +360,7 @@ scripts/
   config.py           Domain configs, 23 dimensions, characterizing flags, ATOMIC relation mapping
   models.py           Pydantic models (Stage1Entry, Stage2Candidate, Stage2Variant, Stage2Pair)
   merge_stage_1.py    Merge domain outputs, backtrack multicultural metadata and commonsense gold
-  split.py            Train/val/test stratified split assignment
+  split.py            Train/test stratified split assignment, stage 2 pair relabeling
   batch_runner.py     Async Azure batch API runner
   run_stage_1.py      Stage 1 orchestrator (prepare/run/parse/retry/merge/split)
   run_stage_2.py      Stage 2 orchestrator (select/generate/eval/pairs)
@@ -383,31 +378,37 @@ scripts/
 
 data/
   stage_1/                              Per-domain batch output files (coherence/, empathy/, commonsense/, multicultural/, holdout_failures.jsonl)
-  stage_1.jsonl                         51,264 scored entries (188 MB) — all 23 dims, S1D-* IDs, split: train/val/test
-  stage_2.jsonl                         121,326 preference pairs — S2D-* IDs, 6-label classification (shareable copy of stage_2/pairs.jsonl)
+  stage_1.jsonl                         51,264 scored entries (188 MB) — all 23 dims, S1D-* IDs, split: train/test
+  stage_2.jsonl                         161,690 preference pairs — S2D-* IDs, 6-label classification (shareable copy of stage_2/pairs.jsonl)
   stage_1_template.json                 Human-readable Stage 1 format reference (categorical fields show all possible values)
   stage_2_template.json                 Human-readable Stage 2 pair format reference (categorical fields show all possible values)
   stage_2_example_prompts.txt           One real generation prompt per domain
   all_prompts_review.txt                All 32 rendered prompt variants for visual review
-  stage_2/candidates.jsonl              124,988 selected candidates (3-4 per dialogue) with tier, direction, and target dims
-  stage_2/shards/                       25 generation request shards (5,000 entries each)
-  stage_2/shards/output/                25 batch output files (v2 re-run)
-  stage_2/manifest_gen.jsonl            124,967 manifest entries mapping custom_id to dialogue metadata
-  stage_2/shards_eval/                  25 eval request shards (124,772 entries)
-  stage_2/shards_eval/output/           25 batch output files with variant scores (v2 re-run)
-  stage_2/manifest_eval.jsonl           124,772 manifest entries mapping eval custom_id to variant metadata
-  stage_2/pairs.jsonl                   121,326 preference pairs — S2D-* IDs, 6-label classification
+  stage_2/candidates.jsonl              ~166,654 selected candidates (3-4 per dialogue) with tier, direction, and target dims
+  stage_2/shards/                       25 generation request shards (original run)
+  stage_2/shards/output/                25 batch output files (original run)
+  stage_2/shards_missing/               9 generation request shards (gap-fill run)
+  stage_2/shards_missing/output/        9 batch output files (gap-fill run)
+  stage_2/manifest_gen.jsonl            124,967 manifest entries (original run)
+  stage_2/manifest_gen_missing.jsonl    41,690 manifest entries (gap-fill run)
+  stage_2/shards_eval/                  25 eval request shards (original run)
+  stage_2/shards_eval/output/           25 batch output files with variant scores (original run)
+  stage_2/shards_eval_missing/          9 eval request shards (gap-fill run)
+  stage_2/shards_eval_missing/output/   9 batch output files with variant scores (gap-fill run)
+  stage_2/manifest_eval.jsonl           124,772 manifest entries (original run)
+  stage_2/manifest_eval_missing.jsonl   41,593 manifest entries (gap-fill run)
+  stage_2/pairs.jsonl                   161,690 preference pairs — S2D-* IDs, 6-label classification, split: train/test
   stage_2/backup/                       v1 outputs: shards/output_v1/, shards_eval/output_v1_biased/, stage_2.jsonl
 ```
 
 ### Data Split Summary
 
-| Split | Entries | Purpose | File |
-|-------|--------:|---------|------|
-| Train | 38,447 | Stage 2 input → 121,326 DPO pairs | `data/stage_1.jsonl` (filter `split == "train"`) |
-| Val | 5,127 | Held out for downstream evaluation | `data/stage_1.jsonl` (filter `split == "val"`) |
-| Test | 7,690 | Held out for downstream evaluation | `data/stage_1.jsonl` (filter `split == "test"`) |
+| Split | Stage 1 entries | Stage 2 pairs | Purpose |
+|-------|----------------:|--------------:|---------|
+| Train | 46,137 | 145,522 | DPO training pairs |
+| Test | 5,127 | 16,168 | Ground truth pairs for model evaluation |
+| **Total** | **51,264** | **161,690** | |
 
-Val/test entries are in `stage_1.jsonl` distinguished by the `split` field. Stage 2 filters to `split == "train"` — val/test are never used during pair construction.
+Both `stage_1.jsonl` and `stage_2/pairs.jsonl` carry a `split` field. Stage 2 processes all splits — each pair inherits the split from its source dialogue.
 
-335 tests passing across 13 test files.
+348 tests passing across 13 test files.
