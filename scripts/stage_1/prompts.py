@@ -128,41 +128,66 @@ DIALOGUE:
 CULTURAL VALUE STATEMENT:
 {statement}
 
+CALIBRATION:
+Across a representative set of dialogues, scores should spread across the full 0.0-1.0 range. If you find yourself rating most dialogues above 0.75 on any dimension, recheck the rubric — most dialogues are mid-quality. Use the full range. Anchors below define what each level means; pick the closest one.
+
 TASK:
-Rate each aspect on a scale from 0.0 to 1.0:
+Rate each aspect on a 0.0-1.0 scale using the anchored rubric below. Three dimensions require an explicit "reasoning" field BEFORE the score; this forces evidence-based scoring.
 
-1. CULTURAL VALUE (mu_cultural_value): How strongly is the cultural value from
-   the statement reflected across the dialogue?
-   - 0.0 = value not present or only weak/contradictory signs
-   - 1.0 = value is dominant and clear, with repeated, explicit, coherent evidence
+1. CULTURAL VALUE (mu_cultural_value): How strongly is the cultural value from the statement reflected across the dialogue?
+   ANCHORS:
+   - 0.0 = dialogue contradicts the value or shows the opposite stance
+   - 0.25 = value is absent; dialogue is neutral or off-topic from it
+   - 0.5 = value is alluded to weakly or only by one speaker; not central
+   - 0.75 = value clearly motivates at least one speaker's stance, with concrete textual evidence
+   - 1.0 = value drives the dialogue's content; both speakers act consistently with it; multiple turns reinforce
+   FORCED CONTRAST (lower the score even if the dialogue otherwise reads well):
+   - Score ≤ 0.25 if the dialogue could plausibly support the OPPOSITE value
+   - Score ≤ 0.5 if speakers state the value abstractly but their behavior contradicts it
+   - Score ≤ 0.5 if the value is mentioned in only one turn without follow-through
+   REFLECTION (required before scoring ≥ 0.75): cite the specific turn(s) and quote a phrase that demonstrates the value. If you cannot cite a specific turn, score ≤ 0.5.
 
-2. CULTURAL SPECIFICITY (mu_cultural_specificity): Does the dialogue clearly
-   reflect the distinct cultural backgrounds of both speakers — in their values,
-   norms, or ways of expressing themselves — rather than sounding generic?
+2. CULTURAL SPECIFICITY (mu_cultural_specificity): Does the dialogue clearly reflect the distinct cultural backgrounds of both speakers — in their values, norms, or ways of expressing themselves — rather than sounding generic?
    - 0.0 = generic, culture-neutral, could be from anywhere
    - 0.5 = some cultural elements present, but could be more specific
    - 1.0 = clearly reflects both cultural backgrounds, culturally specific and distinctive
 
 3. NATURALNESS (mu_naturalness): How natural does the dialogue sound?
-   - 0.0 = unnatural, stilted, or artificial
-   - 1.0 = very natural, like real conversation
+   ANCHORS:
+   - 0.0 = stilted, robotic, obviously generated; no human would speak this way
+   - 0.25 = wooden phrasing, awkward formality; comprehensible but mechanical
+   - 0.5 = mostly natural with occasional awkward phrasings or unnatural transitions
+   - 0.75 = sounds natural; minor stiffness in 1-2 places at most
+   - 1.0 = indistinguishable from a real recorded conversation in this register
+   FORCED CONTRAST:
+   - Score ≤ 0.5 if any turn uses obviously unnatural phrasing (overly formal, repetitive sentence structure, AI-style enumerations)
+   - Score ≤ 0.5 if greetings, sign-offs, or transitions feel templated
+   - Score ≤ 0.75 if turn lengths are unrealistically uniform
+   REFLECTION (required before scoring ≥ 0.75): identify which turn sounds most natural and explain why. If every turn feels equally polished, that itself is a sign of unnaturalness — score ≤ 0.75.
 
-4. COHERENCE (mu_coherence): How clear and followable is the dialogue,
-   considering the cultural context?
-   - 0.0 = unclear, confusing, hard to follow
-   - 1.0 = very clear, easy to follow, culturally coherent
+4. COHERENCE (mu_coherence): How clear and followable is the dialogue, considering the cultural context?
+   ANCHORS:
+   - 0.0 = incoherent; turns don't connect, topics shift incomprehensibly
+   - 0.25 = some turns seem disconnected; reader needs guesswork to follow
+   - 0.5 = mostly followable; one or two abrupt shifts or unclear references
+   - 0.75 = clear progression; topic threads are easy to track
+   - 1.0 = exceptionally clear; every turn builds on prior context with explicit references
+   FORCED CONTRAST:
+   - Score ≤ 0.5 if any pronoun reference is ambiguous
+   - Score ≤ 0.5 if a topic appears without setup or disappears without resolution
+   - Score ≤ 0.75 if speakers don't acknowledge each other's points
+   REFLECTION (required before scoring ≥ 0.75): describe the topic flow turn by turn. If you skip turns or paraphrase loosely, score ≤ 0.75.
 
-5. EMPATHY (mu_empathy): How much empathy and care do speakers show
-   toward each other's cultural perspectives?
+5. EMPATHY (mu_empathy): How much empathy and care do speakers show toward each other's cultural perspectives?
    - 0.0 = low empathy, dismissive, or culturally insensitive
    - 1.0 = high empathy and cultural sensitivity
 
 OUTPUT FORMAT (strict JSON):
 {{
-  "mu_cultural_value": <float between 0.0 and 1.0>,
+  "mu_cultural_value": {{"reasoning": "<cite turn N and quote phrase, or explain why score is low>", "score": <float between 0.0 and 1.0>}},
   "mu_cultural_specificity": <float between 0.0 and 1.0>,
-  "mu_naturalness": <float between 0.0 and 1.0>,
-  "mu_coherence": <float between 0.0 and 1.0>,
+  "mu_naturalness": {{"reasoning": "<which turn is most/least natural and why>", "score": <float between 0.0 and 1.0>}},
+  "mu_coherence": {{"reasoning": "<describe topic flow turn by turn>", "score": <float between 0.0 and 1.0>}},
   "mu_empathy": <float between 0.0 and 1.0>
 }}
 
