@@ -562,5 +562,137 @@ def rescore_mc(deployment: str, max_workers: int, limit: int, stage1_path: str, 
     logger.success("wrote {} ({} rows total, {} multicultural rescored)", output, len(rows), len(mc_idx))
 
 
+@cli.group()
+def qa() -> None:
+    """quality gates between phases — verify before advancing."""
+
+
+@qa.command("rescore")
+@click.argument("rescored_path", type=click.Path(exists=True, path_type=Path))
+@click.option("--original", default="data/stage_1.jsonl", type=click.Path())
+def qa_rescore(rescored_path: Path, original: str) -> None:
+    """quality gates on a rescored stage_1.jsonl: coverage, distribution, regression."""
+    with open(original) as f:
+        orig = [json.loads(l) for l in f]
+    with open(rescored_path) as f:
+        new = [json.loads(l) for l in f]
+
+    orig_by_id = {d["dialogue_id"]: d for d in orig}
+    mc_dims = ["mu_cultural_value", "mu_cultural_specificity", "mu_naturalness", "mu_coherence", "mu_empathy"]
+    target_dims = {"mu_cultural_value", "mu_naturalness", "mu_coherence"}
+    nontarget_dims = {"mu_cultural_specificity", "mu_empathy"}
+
+    mc_new = [d for d in new if d.get("domain") == "multicultural"]
+    mc_orig = [d for d in orig if d.get("domain") == "multicultural"]
+
+    # 1. coverage: how many actually changed?
+    changed = unchanged = 0
+    for d in mc_new:
+        o = orig_by_id.get(d["dialogue_id"])
+        if not o:
+            continue
+        diffs = sum(
+            1 for k in mc_dims
+            if abs((d["scores"].get(k) or 0) - (o["scores"].get(k) or 0)) > 1e-6
+        )
+        if diffs > 0:
+            changed += 1
+        else:
+            unchanged += 1
+    click.echo("\n=== COVERAGE ===")
+    click.echo(f"  rescored multicultural: {len(mc_new)}")
+    click.echo(f"  scores changed:   {changed} ({100*changed/len(mc_new):.1f}%)")
+    click.echo(f"  scores unchanged: {unchanged} ({100*unchanged/len(mc_new):.1f}%) ← failed calls or content filter")
+
+    # 2. per-dim distribution: original vs rescored
+    click.echo("\n=== PER-DIM DISTRIBUTION ===")
+    click.echo(f"  {'dim':<28} {'orig mean':>9} {'orig std':>8} {'new mean':>9} {'new std':>8} {'Δ mean':>7} {'distinct new':>12}")
+    for dim in mc_dims:
+        ov = [d["scores"].get(dim) for d in mc_orig if d["scores"].get(dim) is not None]
+        nv = [d["scores"].get(dim) for d in mc_new if d["scores"].get(dim) is not None]
+        if not ov or not nv:
+            continue
+        is_target = dim in target_dims
+        marker = "★" if is_target else " "
+        click.echo(
+            f"  {marker} {dim:<26} {st.mean(ov):>9.3f} {st.pstdev(ov):>8.3f} "
+            f"{st.mean(nv):>9.3f} {st.pstdev(nv):>8.3f} {st.mean(nv)-st.mean(ov):>+7.3f} "
+            f"{len({round(v,3) for v in nv}):>12}"
+        )
+
+    # 3. regression check: non-target dims should be stable
+    click.echo("\n=== REGRESSION CHECK (non-target dims should be ~stable) ===")
+    for dim in nontarget_dims:
+        deltas = []
+        for d in mc_new:
+            o = orig_by_id.get(d["dialogue_id"])
+            if not o: continue
+            on = d["scores"].get(dim); oo = o["scores"].get(dim)
+            if on is None or oo is None: continue
+            deltas.append(on - oo)
+        if not deltas: continue
+        large = sum(1 for d in deltas if abs(d) > 0.2)
+        click.echo(f"  {dim}: mean Δ = {st.mean(deltas):+.3f}, |Δ|>0.2 in {large}/{len(deltas)} ({100*large/len(deltas):.1f}%)")
+
+    # 4. per-country balance for cultural_value
+    click.echo("\n=== PER-COUNTRY mu_cultural_value (rescored) ===")
+    by_country: dict[str, list[float]] = defaultdict(list)
+    for d in mc_new:
+        c1 = (d.get("domain_metadata") or {}).get("country_1", "?")
+        v = d["scores"].get("mu_cultural_value")
+        if v is not None:
+            by_country[c1].append(v)
+    click.echo(f"  {'country':<26} {'n':>5} {'mean':>6} {'std':>6}")
+    for c in sorted(by_country):
+        vs = by_country[c]
+        click.echo(f"  {c:<26} {len(vs):>5} {st.mean(vs):>6.3f} {st.pstdev(vs):>6.3f}")
+
+    # 5. quintile distribution for target dims
+    click.echo("\n=== QUINTILE DISTRIBUTION (target dims) ===")
+    click.echo(f"  {'dim':<28} {'<.2':>5} {'<.4':>5} {'<.6':>5} {'<.8':>5} {'<=1':>5}")
+    for dim in target_dims:
+        vs = [d["scores"].get(dim) for d in mc_new if d["scores"].get(dim) is not None]
+        if not vs: continue
+        b = [0]*5
+        for v in vs:
+            i = min(4, int(v*5))
+            b[i] += 1
+        pct = [100*x/len(vs) for x in b]
+        click.echo(f"  {dim:<28} {pct[0]:>4.0f}% {pct[1]:>4.0f}% {pct[2]:>4.0f}% {pct[3]:>4.0f}% {pct[4]:>4.0f}%")
+
+
+@qa.command("qid")
+@click.option("--n", default=20, help="random sample size")
+@click.option("--seed", default=42)
+def qa_qid(n: int, seed: int) -> None:
+    """sample-print qid_meaning entries that were LM-generated for manual review."""
+    import random as _r
+    base = Path("data/input/multicultural")
+    cur_path = base / "qid_meaning.csv"
+    bak_path = base / "qid_meaning.csv.bak"
+    if not bak_path.exists():
+        click.echo("no .bak file; cannot identify newly generated entries")
+        return
+
+    import csv as _csv
+    bak_qids = set()
+    with open(bak_path) as f:
+        for row in _csv.DictReader(f):
+            bak_qids.add(row["qid"])
+    new_entries = []
+    with open(cur_path) as f:
+        for row in _csv.DictReader(f):
+            if row["qid"] not in bak_qids:
+                new_entries.append(row)
+
+    click.echo(f"new qid entries (LM-generated): {len(new_entries)}")
+    rng = _r.Random(seed)
+    sample = rng.sample(new_entries, min(n, len(new_entries)))
+    for e in sample:
+        click.echo("-" * 70)
+        for k in ["qid", "means", "not_this", "shows_up_as", "dont_say"]:
+            click.echo(f"  {k}: {e.get(k, '')}")
+
+
 if __name__ == "__main__":
     cli()
