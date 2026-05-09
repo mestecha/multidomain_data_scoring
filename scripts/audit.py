@@ -247,7 +247,8 @@ def compare_rubric(n: int, deployment: str, stage1_path: str) -> None:
         "ground_truth_mean": st.mean(gt_scores) if gt_scores else None,
         "delta_mean": (st.mean(on_scores) - st.mean(off_scores)) if (on_scores and off_scores) else None,
     }
-    summary_path = out_dir / "summary.json"
+    summary["deployment"] = deployment
+    summary_path = out_dir / f"summary_{deployment}_{datetime.now():%Y%m%dT%H%M}.json"
     summary_path.write_text(json.dumps(summary, indent=2))
     logger.info("summary: {}", json.dumps(summary, indent=2))
 
