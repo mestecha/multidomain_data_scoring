@@ -18,12 +18,12 @@ from scripts.models import (
 
 # ── Cultural drivers (eager-loaded at import) ─────────────────────────────
 
-MULTICULTURAL_DATA_DIR = Path("data/input/multicultural")
+MULTICULTURAL_RESOURCES_DIR = Path("data/input/multicultural/resources")
 
 
 def _read_norms() -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
-    with open(MULTICULTURAL_DATA_DIR / "norms.csv", encoding="utf-8") as f:
+    with open(MULTICULTURAL_RESOURCES_DIR / "norms.csv", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             out.setdefault(row["country"], []).append(row["norm"])
     return out
@@ -31,7 +31,7 @@ def _read_norms() -> dict[str, list[str]]:
 
 def _read_prejudices() -> dict[tuple[str, str], list[str]]:
     out: dict[tuple[str, str], list[str]] = {}
-    with open(MULTICULTURAL_DATA_DIR / "prejudices.csv", encoding="utf-8") as f:
+    with open(MULTICULTURAL_RESOURCES_DIR / "prejudices.csv", encoding="utf-8") as f:
         for row in csv.DictReader(f):
             key = (row["country"], row["valence"])
             out.setdefault(key, []).append(row["prejudice"])
@@ -39,13 +39,13 @@ def _read_prejudices() -> dict[tuple[str, str], list[str]]:
 
 
 def _read_cultural_items() -> dict[str, dict[str, list[str]]]:
-    with open(MULTICULTURAL_DATA_DIR / "cultural_items.json", encoding="utf-8") as f:
+    with open(MULTICULTURAL_RESOURCES_DIR / "cultural_items.json", encoding="utf-8") as f:
         return json.load(f)
 
 
-NORMS_BY_COUNTRY = _read_norms() if MULTICULTURAL_DATA_DIR.exists() else {}
-PREJUDICES_BY_COUNTRY = _read_prejudices() if MULTICULTURAL_DATA_DIR.exists() else {}
-CULTURAL_ITEMS = _read_cultural_items() if MULTICULTURAL_DATA_DIR.exists() else {}
+NORMS_BY_COUNTRY = _read_norms() if MULTICULTURAL_RESOURCES_DIR.exists() else {}
+PREJUDICES_BY_COUNTRY = _read_prejudices() if MULTICULTURAL_RESOURCES_DIR.exists() else {}
+CULTURAL_ITEMS = _read_cultural_items() if MULTICULTURAL_RESOURCES_DIR.exists() else {}
 
 
 def _sample_drivers(

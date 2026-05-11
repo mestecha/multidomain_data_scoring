@@ -412,31 +412,37 @@ def score_variants(drivers_output: Path, deployment: str, stage1_path: str) -> N
 @click.option("--deployment", default="gpt-5.1")
 @click.option("--max-workers", default=8)
 @click.option("--limit", default=0, help="cap how many qids to process (0=all)")
-def qid_gen(deployment: str, max_workers: int, limit: int) -> None:
-    """generate qid_meaning entries (means/not_this/shows_up_as/dont_say) for missing qids."""
+@click.option("--regen-qids", default="", help="comma-separated qids to overwrite (uses tighter prompt)")
+def qid_gen(deployment: str, max_workers: int, limit: int, regen_qids: str) -> None:
+    """generate qid_meaning entries; --regen-qids overwrites bad existing entries with tighter prompt."""
     import csv as _csv
     from concurrent.futures import ThreadPoolExecutor
 
-    base = Path("data/input/multicultural")
+    base = Path("data/input/multicultural/resources")
     qid_path = base / "qid_meaning.csv"
     statements_path = base / "statements.csv"
 
-    existing: set[str] = set()
+    existing_rows: dict[str, dict] = {}
     with open(qid_path) as f:
         for row in _csv.DictReader(f):
-            existing.add(row["qid"])
+            existing_rows[row["qid"]] = row
 
     statements_by_qid: dict[str, list[tuple[str, str]]] = {}
     with open(statements_path) as f:
         for row in _csv.DictReader(f):
             statements_by_qid.setdefault(row["qid"], []).append((row["country"], row["statement"]))
 
-    missing = [q for q in statements_by_qid if q not in existing]
-    if limit:
-        missing = missing[:limit]
-    logger.info("missing qids: {} / {}", len(missing), len(statements_by_qid))
+    regen_set = {q.strip() for q in regen_qids.split(",") if q.strip()} if regen_qids else set()
+    if regen_set:
+        targets = [q for q in regen_set if q in statements_by_qid]
+        logger.info("regenerating {} qids: {}", len(targets), targets)
+    else:
+        targets = [q for q in statements_by_qid if q not in existing_rows]
+        if limit:
+            targets = targets[:limit]
+        logger.info("missing qids: {} / {}", len(targets), len(statements_by_qid))
 
-    template = """You are operationalizing a WVS-style cultural value question. Given the question id and example statements, write 4 fields that help an LM judge whether a dialogue reflects this value.
+    template_default = """You are operationalizing a WVS-style cultural value question. Given the question id and example statements, write 4 fields that help an LM judge whether a dialogue reflects this value.
 
 QID: {qid}
 EXAMPLE STATEMENTS:
@@ -451,6 +457,30 @@ Return strict JSON with these exact keys:
 }}
 
 Return only valid JSON, no commentary."""
+
+    template_strict = """You are operationalizing a WVS-style cultural value question for an LM judge that scores dialogue evidence. Earlier attempts failed by (a) substituting an adjacent concept, (b) writing absence-only markers (e.g. "doesn't do X"), or (c) operationalizing a behavioral item as an attitude.
+
+QID: {qid}
+EXAMPLE STATEMENTS:
+{examples}
+
+Strict requirements:
+- `means` must paraphrase what the EXAMPLE STATEMENTS actually measure. Do NOT replace with a related-but-different construct (e.g. resilience for positive affect).
+- `shows_up_as` must list 3 POSITIVE behavioral markers (things a person who holds this value DOES, says, prioritizes). Never frame as "rarely / does not / avoids".
+- If the underlying item measures BEHAVIOR (e.g. "I have done X"), the markers must be observable behaviors, not attitudes ABOUT the behavior.
+- `dont_say` must list 3 plausible CONFUSIONS — phrases someone might mistake for evidence of the value, not straw-man extremes.
+- Each marker / phrase must be specific enough that an LM judge could spot or rule it out in a 6-turn dialogue.
+
+Return strict JSON with these exact keys:
+{{
+  "means": "<one phrase, paraphrasing the question literally>",
+  "not_this": "<one phrase: a real adjacent confusion>",
+  "shows_up_as": "<3 POSITIVE behavioral markers separated by '; '>",
+  "dont_say": "<3 plausible confusions separated by '; '>"
+}}
+
+Return only valid JSON, no commentary."""
+    template = template_strict if regen_set else template_default
 
     client = _azure_client()
 
@@ -469,33 +499,34 @@ Return only valid JSON, no commentary."""
             return None
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        new_rows = list(filter(None, pool.map(gen_one, missing)))
-    logger.success("generated {}/{} new qid entries", len(new_rows), len(missing))
+        new_rows = list(filter(None, pool.map(gen_one, targets)))
+    logger.success("generated {}/{} entries", len(new_rows), len(targets))
 
-    backup = qid_path.with_suffix(".csv.bak")
+    backup = qid_path.with_suffix(f".csv.bak_{datetime.now():%Y%m%dT%H%M}")
     qid_path.replace(backup)
-    logger.info("backed up original to {}", backup)
+    logger.info("backed up to {}", backup)
 
+    new_by_qid = {r["qid"]: r for r in new_rows}
     with open(qid_path, "w", newline="", encoding="utf-8") as f:
         writer = _csv.DictWriter(f, fieldnames=["qid", "means", "not_this", "shows_up_as", "dont_say"])
         writer.writeheader()
-        # original entries
-        with open(backup) as orig:
-            for row in _csv.DictReader(orig):
+        for qid, row in existing_rows.items():
+            writer.writerow(new_by_qid.get(qid, row))
+        for qid, row in new_by_qid.items():
+            if qid not in existing_rows:
                 writer.writerow(row)
-        # new
-        for row in new_rows:
-            writer.writerow(row)
-    logger.success("wrote {} (now {} entries)", qid_path, len(existing) + len(new_rows))
+    logger.success("wrote {} (now {} entries)", qid_path, len(existing_rows) + sum(1 for q in new_by_qid if q not in existing_rows))
 
 
 @cli.command("rescore-mc")
 @click.option("--deployment", default="gpt-5.1")
 @click.option("--max-workers", default=8)
 @click.option("--limit", default=0, help="cap dialogues (0=all 12,816)")
+@click.option("--ids-file", default=None, type=click.Path(), help="restrict to dialogue_ids in this file (one per line)")
+@click.option("--only-dim", default=None, help="if set, only this dim is updated; other mu_* dims preserved from input")
 @click.option("--stage1-path", default="data/stage_1.jsonl", type=click.Path())
 @click.option("--output", default="data/stage_1_v2.jsonl", type=click.Path())
-def rescore_mc(deployment: str, max_workers: int, limit: int, stage1_path: str, output: str) -> None:
+def rescore_mc(deployment: str, max_workers: int, limit: int, ids_file: str | None, only_dim: str | None, stage1_path: str, output: str) -> None:
     """re-score multicultural stage-1 with the new rubric + qid_addendum.
 
     preserves non-multicultural rows; replaces only mu_* score blocks.
@@ -503,11 +534,21 @@ def rescore_mc(deployment: str, max_workers: int, limit: int, stage1_path: str, 
     """
     from concurrent.futures import ThreadPoolExecutor
 
+    target_ids: set[str] | None = None
+    if ids_file:
+        with open(ids_file) as f:
+            target_ids = {line.strip() for line in f if line.strip()}
+        logger.info("restricted to {} dialogue_ids from {}", len(target_ids), ids_file)
+
     rows: list[dict] = []
     with open(stage1_path) as f:
         for line in f:
             rows.append(json.loads(line))
-    mc_idx = [i for i, r in enumerate(rows) if r.get("domain") == "multicultural"]
+    mc_idx = [
+        i for i, r in enumerate(rows)
+        if r.get("domain") == "multicultural"
+        and (target_ids is None or r.get("dialogue_id") in target_ids)
+    ]
     if limit:
         mc_idx = mc_idx[:limit]
     logger.info("re-scoring {} multicultural dialogues / {} total rows", len(mc_idx), len(rows))
@@ -551,7 +592,11 @@ def rescore_mc(deployment: str, max_workers: int, limit: int, stage1_path: str, 
         for i, new_scores in pool.map(rescore_one, mc_idx):
             done += 1
             if new_scores:
-                rows[i]["scores"] = {**rows[i].get("scores", {}), **new_scores}
+                if only_dim:
+                    if only_dim in new_scores:
+                        rows[i]["scores"][only_dim] = new_scores[only_dim]
+                else:
+                    rows[i]["scores"] = {**rows[i].get("scores", {}), **new_scores}
             if done % 50 == 0:
                 logger.info("progress: {}/{}", done, len(mc_idx))
 
@@ -660,14 +705,36 @@ def qa_rescore(rescored_path: Path, original: str) -> None:
         pct = [100*x/len(vs) for x in b]
         click.echo(f"  {dim:<28} {pct[0]:>4.0f}% {pct[1]:>4.0f}% {pct[2]:>4.0f}% {pct[3]:>4.0f}% {pct[4]:>4.0f}%")
 
+    # 6. sample artifact for sonnet audit: 50 random rescored dialogues, paired with original scores
+    import random as _r
+    qa_dir = AUDITS_DIR / "qa"
+    qa_dir.mkdir(parents=True, exist_ok=True)
+    rng = _r.Random(42)
+    sample_n = min(50, len(mc_new))
+    samples = rng.sample(mc_new, sample_n)
+    out = qa_dir / f"rescore_sample_{datetime.now():%Y%m%dT%H%M}.jsonl"
+    with open(out, "w") as f:
+        for d in samples:
+            o = orig_by_id.get(d["dialogue_id"]) or {}
+            f.write(json.dumps({
+                "dialogue_id": d["dialogue_id"],
+                "country_1": (d.get("domain_metadata") or {}).get("country_1"),
+                "country_2": (d.get("domain_metadata") or {}).get("country_2"),
+                "statement": (d.get("domain_metadata") or {}).get("statement_original"),
+                "messages": d.get("messages"),
+                "scores_original": {k: o.get("scores", {}).get(k) for k in mc_dims},
+                "scores_rescored": {k: d["scores"].get(k) for k in mc_dims},
+            }, ensure_ascii=False) + "\n")
+    click.echo(f"\n=== ARTIFACT ===\n  {out}\n  dispatch sonnet via Agent tool to audit this file.")
+
 
 @qa.command("qid")
-@click.option("--n", default=20, help="random sample size")
+@click.option("--n", default=30, help="random sample size for sonnet audit")
 @click.option("--seed", default=42)
 def qa_qid(n: int, seed: int) -> None:
-    """sample-print qid_meaning entries that were LM-generated for manual review."""
+    """sample LM-generated qid_meaning entries to a JSONL artifact for sonnet audit."""
     import random as _r
-    base = Path("data/input/multicultural")
+    base = Path("data/input/multicultural/resources")
     cur_path = base / "qid_meaning.csv"
     bak_path = base / "qid_meaning.csv.bak"
     if not bak_path.exists():
@@ -685,13 +752,18 @@ def qa_qid(n: int, seed: int) -> None:
             if row["qid"] not in bak_qids:
                 new_entries.append(row)
 
-    click.echo(f"new qid entries (LM-generated): {len(new_entries)}")
     rng = _r.Random(seed)
     sample = rng.sample(new_entries, min(n, len(new_entries)))
-    for e in sample:
-        click.echo("-" * 70)
-        for k in ["qid", "means", "not_this", "shows_up_as", "dont_say"]:
-            click.echo(f"  {k}: {e.get(k, '')}")
+
+    qa_dir = AUDITS_DIR / "qa"
+    qa_dir.mkdir(parents=True, exist_ok=True)
+    out = qa_dir / f"qid_sample_{datetime.now():%Y%m%dT%H%M}.jsonl"
+    with open(out, "w") as f:
+        for e in sample:
+            f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    click.echo(f"wrote {out}")
+    click.echo(f"  {len(new_entries)} new qid entries; sampled {len(sample)}")
+    click.echo("dispatch sonnet via Agent tool to audit this file.")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Multi-Domain Data Scoring 
 
-Last updated: 2026-03-12
+Last updated: 2026-05-11
 
 
 ## Purpose
@@ -12,24 +12,27 @@ This pipeline builds preference pairs for DPO training. It takes raw dialogues f
 
 ```
 Raw dialogues (4 corpora, ~113k total)
-    ↓ sample + deduplicate
-51,264 dialogues
+    ↓ sample + deduplicate + self-taught negatives (multicultural)
+52,587 dialogues
     ↓ Stage 1: GPT judge scores each on its domain's dimensions
-51,264 scored entries (stage_1.jsonl, all 23 dims per entry)
+52,587 scored entries (stage_1.jsonl, all 23 dims per entry)
     ↓ stratified split (seed=42)
-46,137 train  ·  5,127 test
+~47,465 train  ·  ~5,122 test
     ↓                ↓
 Stage 2          Stage 2 (test pairs = ground truths)
     ↓                ↓
 ~167k candidates (3-4 variants per dialogue)
-    ↓ GPT batch API: generate contrastive rewrites
-    ↓ GPT batch API: evaluate both versions scored independently
+    ↓ generate contrastive rewrites (Azure batch + sync gpt-5.1 fallback)
+    ↓ evaluate both versions scored independently
     ↓ 6-label classification (margin > 0.05)
     ↓ flip-pass recovery for opposite-direction variants
-161,690 preference pairs (stage_2.jsonl)
+    ↓ regen pass for malformed pairs + Opus 4.7 subagent recovery
+160,858 preference pairs (stage_2.jsonl)
     ↓
-145,522 train pairs  ·  16,168 test pairs (10.0%)
+144,767 train pairs  ·  16,091 test pairs (10.0%)
 ```
+
+The current canonical reflects a v2 rebuild (May 2026) that fixed a role-boundary bug, rescored multicultural, integrated self-taught negatives, and ran three regen passes plus a placeholder repair. See [v2 Rebuild](#v2-rebuild-may-2026) below for details.
 
 Stage 2 processes all splits. Test pairs carry `split: "test"` in metadata and serve as ground truths for model evaluation.
 
@@ -118,17 +121,17 @@ The characterizing average is 0.778 (std 0.154). These dialogues are already cul
 
 ### Stage 1 Output
 
-51,264 scored entries total. 14 batch failures were held out (99.97% success rate).
+52,587 scored entries total after the v2 rebuild (initial 51,264 — 14 batch failures held out — minus 76 placeholder-corrupted dialogues plus 1,399 multicultural self-taught negatives).
 
 | Domain | Total | Train | Test |
 |--------|------:|------:|-----:|
-| Coherence | 12,797 | 11,517 | 1,280 |
-| Empathy | 12,789 | 11,510 | 1,279 |
+| Coherence | 12,796 | 11,516 | 1,280 |
+| Empathy | 12,714 | 11,440 | 1,274 |
 | Commonsense | 12,862 | 11,576 | 1,286 |
-| Multicultural | 12,816 | 11,534 | 1,282 |
-| **Total** | **51,264** | **46,137** | **5,127** |
+| Multicultural | 14,215 | 12,933 | 1,282 |
+| **Total** | **52,587** | **47,465** | **5,122** |
 
-Split is 90/10, stratified by domain, seed=42.
+Split is 90/10, stratified by domain, seed=42. Negatives are train-only.
 
 
 ## Stage 2 — Contrastive Variant Generation
@@ -231,17 +234,17 @@ The ±0.20 stability threshold in `target_pass` vs `target_coarse_pass` classifi
 
 ### Evaluation Results
 
-34 eval shards (166,365 entries) in two runs, 5 concurrent jobs each, all completed successfully.
+34 eval shards (166,365 entries) in two runs, 5 concurrent jobs each, all completed successfully. The label breakdown below is from the original run; the post-rebuild canonical (`data/stage_2.jsonl`) has 160,858 pairs after dropping 8,214 role-malformed + 314 placeholder-corrupted pairs and replacing 7,696 of them through three regen passes plus a repair pass.
 
-**Overall: 161,690 usable pairs**
+**Original run: 161,690 usable pairs**
 
-| Domain | global_pass | target_pass | target_coarse_pass | global_flip_pass | target_flip_pass | **Usable** |
-|---|---:|---:|---:|---:|---:|---:|
-| Empathy | 12,724 | 1,377 | 23,729 | 4 | 199 | **38,033** |
-| Coherence | 12,243 | 13,723 | 9,553 | 241 | 1,670 | **37,430** |
-| Multicultural | 11,954 | 8,820 | 11,648 | 300 | 2,470 | **35,192** |
-| Commonsense | 0 | 73 | 50,149 | 0 | 813 | **51,035** |
-| **Total** | **36,921** | **23,993** | **95,079** | **545** | **5,152** | **161,690** |
+| Domain | global_pass | target_pass | target_coarse_pass | global_flip_pass | target_flip_pass | **Usable (orig)** | **Final (v2)** |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| Empathy | 12,724 | 1,377 | 23,729 | 4 | 199 | 38,033 | **37,750** |
+| Coherence | 12,243 | 13,723 | 9,553 | 241 | 1,670 | 37,430 | **37,197** |
+| Multicultural | 11,954 | 8,820 | 11,648 | 300 | 2,470 | 35,192 | **35,009** |
+| Commonsense | 0 | 73 | 50,149 | 0 | 813 | 51,035 | **50,902** |
+| **Total** | **36,921** | **23,993** | **95,079** | **545** | **5,152** | **161,690** | **160,858** |
 
 5,697 usable pairs (3.5%) have `intent_followed=false` (flip_pass pairs with swapped chosen/rejected).
 
@@ -330,7 +333,42 @@ Structurally, each dialogue now produces 3–4 candidates (a 3.25x increase to ~
 The v2 prompt quality pass fixed 17 issues across 3 review rounds with 28 new tests, followed by a full stage 2 re-run. Generation prompts gained direction-aware score context with floor/ceiling magnitude guidance, non-target dimension constraints, subtlety constraints on all degrade variants, per-domain writing strategies, and subtler commonsense degrade approaches. Multicultural prompts received explicit direction qualifiers ("more/less culturally grounded") and cultural context positioned before instructions. Eval prompts gained five-level score anchoring (0.0–1.0) and prefix-continuation reasoning. Across both, pipe notation was replaced with explicit JSON role objects.
 
 
+## v2 Rebuild (May 2026)
+
+A pre-training audit on `data/stage_2.jsonl` surfaced four issues that propagated silently from the original pipeline: a role-boundary bug that silently dropped 5.1% of pairs at training time, an inflated multicultural rubric (mean `mu_cultural_value` 0.70 with no contrast clauses, Spearman ~0.29 in Figure 3), absence of self-taught negative examples, and 313 pairs containing degenerate `xxxx`/`XXXX` placeholder turns inherited from the original LM generator. The rebuild addressed each in sequence; the canonical numbers above reflect the result.
+
+### Phase 1 — role-boundary guardrails
+
+Stage 2 pairs require `chosen[0].role` and `rejected[0].role` to equal the opposite of `messages[-1].role` so the concatenation keeps user/assistant alternation; otherwise the reward-model trainer's `apply_chat_template` silently rejects the pair. 8,214 pairs (5.1%) violated this. Three minimal edits in `scripts/stage_2/{prompts,generate,pairs}.py` enforce the invariant: the generation prompt now embeds an `expected_first_role` derived from the prefix tail, the generation parser drops continuations that disobey, and `build_pairs` skips with a `skipped_bad_role` counter. The 8,214 already-malformed pairs were tagged for regen.
+
+### Phase 2 — multicultural rescore
+
+The original `MULTICULTURAL_PROMPT` had only 0.0/1.0 anchors and no contrast clauses, inflating `mu_cultural_value` to mean 0.70 with 80% in the upper quintile. Rewrite added a 5-anchor scale (0.0/0.25/0.5/0.75/1.0), forced-contrast clauses, CoT-before-score, reflection, an adversarial-dialogue clause (so genuine pro-value embodiments aren't flagged as rejection), and an ATTRIBUTION CHECK to prevent cross-dim contamination. Three rescore iterations later (gpt-5.1 → gpt-5.1 patched → gpt-5.1 with `--only-dim` flag) the final canonical was lifted by 856 tier-1+2+3 dialogues re-rescored by Opus 4.7 subagents (correcting the rejection-stance bias gpt-5.1 exhibited on adversarial cases). Sonnet QA verdict: APPROVE_WITH_CAVEATS 31/33 = 94%. Distribution: mean 0.61, std 0.27, distinct 23, quintiles 8/12/20/25/34%.
+
+### Phase 3 — self-taught negatives
+
+Following Wang et al. 2024 (Self-Taught Evaluators), 1,400 negative dialogues were generated for the multicultural domain: an LLM invented a "modified instruction" that shifts one specific axis of the original cross-cultural setup (a different cultural value, a deculturated setting, a non-conversational format, or a non-linear structure) and produced a high-quality response to that modified instruction. The output is a good response for the modified task but a bad response for the original — making it a structurally weak example on the target dim without being gameable by surface patterns. Generation: Claude Sonnet 4.7 via Agent-tool subagents (cross-model against the gpt-5.1 stage-1 judge), 7 countries × 4 target dims × 50 dialogues. Scoring: gpt-5.1 sync, 8 workers. 1,399 of 1,400 scored successfully; integrated into stage_1 with new dialogue IDs `S1D-051265..052663`, source IDs `mu-NS-<COUNTRY>-NNNNNN`, and a nested `negative_sampling` metadata block recording method, generator model, target dim, modified instruction, and source uid.
+
+### Phase 4 — regen passes (8,214 → 7,696 recovered, 92.9%)
+
+The Azure batch deployment was degraded the day of the regen (2.8h stuck in validating). The pipeline pivoted to synchronous `gpt-5.1` (`scripts/regen/sync.py`), running through generation and eval as drop-in replacements. Three passes:
+
+- **Pass 1** — gpt-5.1 sync at T=0.0. 8,214 candidates → 8,170 variants → 6,552 pairs (79.8% recovery).
+- **Pass 2** — gpt-5.1 sync at T=0.5 on the 1,662 not recovered in pass 1. → 749 pairs (45.1% additional).
+- **Pass 3** — Opus 4.7 subagents (Agent tool, not API; 10 waves × 4 parallel × 25 items/chunk) on the 913 still missing. → 329 pairs (36% additional). 0 role-compliance failures across all 913 — Opus's structural fidelity on the schema was perfect.
+
+### Phase 5 — placeholder repair
+
+313 pairs and 105 stage_1 dialogues contained `xxxx`/`XXXX` placeholders from degenerate LM outputs in the original generator. 75 dialogues had placeholders in user turns (no anchor) and were dropped. 29 dialogues had user turns intact and were repaired by Opus subagents that rewrote each `xxxx` assistant turn as a plausible empathetic response calibrated to the dialogue's existing scores. 1 coherence dialogue (`S1D-000128`) had an `XXXXXXXXXX` variant the empathy-focused subagents preserved as-is; it was added to the dropped set. The 90 stage_2 pairs depending on repaired sources were regenerated via `scripts/regen/{build,sync,finalize}.py` and patched into the canonical via `scripts/stage_2/patch.py`. Final: 0 placeholders corpus-wide (regex `[xX]{4,}`).
+
+### Cross-model QA
+
+A Sonnet 4.7 subagent audited a stratified 40-pair sample (5 clean + 5 regen per domain). Structural: 40/40 clean. Content: 38/40 usable, 1 hard fail (multicultural `S2D-075642` with score inversion across 3 dims — dropped from canonical), 15 minor caveats. Regen pairs hold parity with clean pairs. Three patterns the audit surfaced are documented in [`data/audits/qa/known_limitations.md`](data/audits/qa/known_limitations.md): mean-validator admits per-dim inversions (12% corpus-wide), scorer bias on `cs_coherence` and `mu_empathy`, and ~2.5% estimated cross-model judgment disagreement noise.
+
+
 ## Known Risks
+
+See [`data/audits/qa/known_limitations.md`](data/audits/qa/known_limitations.md) for the three v2 limitations affecting training (mean-validator per-dim inversions, scorer bias on `cs_coherence` / `mu_empathy`, LM-judge noise).
 
 76.6% of commonsense dialogues have exactly 5 messages. When continuation length exceeds the original, the fallback uses a 1-message prefix, so generated variants may not meaningfully correspond to the original. Separately, Stage 2 eval uses a single-continuation format with score anchoring while Stage 1 uses domain-specific rubrics — this asymmetry is by design (independent validation) but could affect pass rates.
 
@@ -364,51 +402,66 @@ scripts/
   batch_runner.py     Async Azure batch API runner
   run_stage_1.py      Stage 1 orchestrator (prepare/run/parse/retry/merge/split)
   run_stage_2.py      Stage 2 orchestrator (select/generate/eval/pairs)
-  render_prompts.py   Render all 32 prompt variants to data/all_prompts_review.txt for visual review
+  render_prompts.py   Render all 32 prompt variants for visual review
   analyze_pairs.py    Score statistics, direction distributions, margin threshold sensitivity analysis
+  audit.py            Distribution / rescore / qa subcommands used during v2 rebuild
   stage_1/
     prepare_*.py      Per-domain data preparation and sampling
     parse_results.py  Batch result parsing and score normalization
+    prompts.py        Stage 1 scoring prompts (v2 5-anchor multicultural prompt)
   stage_2/
     select.py         Multi-variant candidate selection, tier classification, per-dim targeting
-    prompts.py        Generation and eval templates, cultural context, domain guidance, score anchoring
-    generate.py       Variant generation batch entry builder, collision-safe custom_id scheme
-    eval.py           6-label classification (classify_variant), eval result parsing
-    pairs.py          Preference pair construction with flip logic, effective direction, label propagation
+    prompts.py        Generation and eval templates with role-boundary guardrail
+    generate.py       Variant generation entry builder + parse_generation_results
+    eval.py           6-label classification + parse_eval_results
+    pairs.py          Preference pair construction with flip logic and role-boundary check
+    update_scores.py  Filter malformed + refresh multicultural stage_1_scores in stage_2
+    splice.py         Combine main.jsonl + regen pairs into canonical stage_2.jsonl
+    patch.py          Drop prejudicial pair_ids + append new pairs
+  regen/
+    build.py          Build Stage2Candidates + gen shards from a malformed_pairs file
+    sync.py           Synchronous Azure OpenAI runner (gpt-5.1 fallback when batch is degraded)
+    finalize.py       parse-gen + parse-eval-and-build subcommands
+  negative_sampling/
+    seeds.py          Sample multicultural train rows for negative generation
+    wang_prompts.py   Wang et al. 2024 Self-Taught Evaluator templates per target dim
+    run.py            Render Wang prompts into chunk files for subagent dispatch
+    score.py          Sync gpt-5.1 scoring of generated negatives
+    integrate.py      Merge scored negatives into stage_1.jsonl with new IDs and metadata
 
 data/
-  stage_1/                              Per-domain batch output files (coherence/, empathy/, commonsense/, multicultural/, holdout_failures.jsonl)
-  stage_1.jsonl                         51,264 scored entries (188 MB) — all 23 dims, S1D-* IDs, split: train/test
-  stage_2.jsonl                         161,690 preference pairs — S2D-* IDs, 6-label classification (shareable copy of stage_2/pairs.jsonl)
-  stage_1_template.json                 Human-readable Stage 1 format reference (categorical fields show all possible values)
-  stage_2_template.json                 Human-readable Stage 2 pair format reference (categorical fields show all possible values)
-  stage_2_example_prompts.txt           One real generation prompt per domain
-  all_prompts_review.txt                All 32 rendered prompt variants for visual review
-  stage_2/candidates.jsonl              ~166,654 selected candidates (3-4 per dialogue) with tier, direction, and target dims
-  stage_2/shards/                       25 generation request shards (original run)
-  stage_2/shards/output/                25 batch output files (original run)
-  stage_2/shards_missing/               9 generation request shards (gap-fill run)
-  stage_2/shards_missing/output/        9 batch output files (gap-fill run)
-  stage_2/manifest_gen.jsonl            124,967 manifest entries (original run)
-  stage_2/manifest_gen_missing.jsonl    41,690 manifest entries (gap-fill run)
-  stage_2/shards_eval/                  25 eval request shards (original run)
-  stage_2/shards_eval/output/           25 batch output files with variant scores (original run)
-  stage_2/shards_eval_missing/          9 eval request shards (gap-fill run)
-  stage_2/shards_eval_missing/output/   9 batch output files with variant scores (gap-fill run)
-  stage_2/manifest_eval.jsonl           124,772 manifest entries (original run)
-  stage_2/manifest_eval_missing.jsonl   41,593 manifest entries (gap-fill run)
-  stage_2/pairs.jsonl                   161,690 preference pairs — S2D-* IDs, 6-label classification, split: train/test
-  stage_2/backup/                       v1 outputs: shards/output_v1/, shards_eval/output_v1_biased/, stage_2.jsonl
+  stage_1.jsonl                       52,587 dialogues — canonical, all 23 dims, includes 1,399 self-taught negatives
+  stage_2.jsonl                       160,858 preference pairs — canonical, post-v2-rebuild
+  stage_1_template.json               Human-readable Stage 1 format reference
+  stage_2_template.json               Human-readable Stage 2 pair format reference
+  stage_2_example_prompts.txt         One real generation prompt per domain
+  stage_1/                            Per-domain batch outputs + repair/ (Opus chunks for placeholder fix)
+  stage_2/main.jsonl                  Pre-regen surviving pairs (intermediate of the rebuild)
+  stage_2/regen/{main,recovery,opus,repair}/    Four regen passes with their own
+                                                {candidates, manifest_gen, manifest_eval,
+                                                 shards_gen, shards_eval, variants, main}.jsonl
+  input/multicultural/
+    countries/{train,test}/<CODE>.csv   Per-country source rows
+    negative_sampling/                  Wang-style dataset + scoring outputs + README.md
+    resources/                          qid_meaning.csv, statements.csv, norms.csv, prejudices.csv,
+                                        cultural_items.json, drivers/prompts_reference.py
+  audits/qa/
+    known_limitations.md              v2 rebuild's surviving limitations for the RM team
+    malformed_pairs.jsonl             8,214 role-boundary-violating pair_ids the rebuild fixed
+    stage_2_audit.md                  Sonnet 4.7 phase-gate audit report
+    stage_2_sample.jsonl              Stratified 40-pair sample used for audit
+  archive/                            Per-folder .changelog + date-named snapshots
+    stage_1/{<date>_<descr>.jsonl, ...}
+    stage_2/{<date>T<HHMM>.jsonl, 20260312_pipeline/, ...}
+    multicultural/20260217/{countries,manifest.jsonl,shards}/
 ```
 
 ### Data Split Summary
 
 | Split | Stage 1 entries | Stage 2 pairs | Purpose |
 |-------|----------------:|--------------:|---------|
-| Train | 46,137 | 145,522 | DPO training pairs |
-| Test | 5,127 | 16,168 | Ground truth pairs for model evaluation |
-| **Total** | **51,264** | **161,690** | |
+| Train | 47,465 | 144,767 | DPO training pairs |
+| Test | 5,122 | 16,091 | Ground truth pairs for model evaluation |
+| **Total** | **52,587** | **160,858** | |
 
-Both `stage_1.jsonl` and `stage_2/pairs.jsonl` carry a `split` field. Stage 2 processes all splits — each pair inherits the split from its source dialogue.
-
-348 tests passing across 13 test files.
+Both files carry a `split` field. Stage 2 processes all splits — each pair inherits the split from its source dialogue.

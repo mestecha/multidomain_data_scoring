@@ -9,12 +9,12 @@ from scripts.config import COHERENCE, EMPATHY
 
 # ── Multicultural qid lookups (eager-loaded at import) ────────────────────
 
-MULTICULTURAL_DATA_DIR = Path("data/input/multicultural")
+MULTICULTURAL_RESOURCES_DIR = Path("data/input/multicultural/resources")
 
 
 def _read_statement_to_qid() -> dict[str, str]:
     out: dict[str, str] = {}
-    path = MULTICULTURAL_DATA_DIR / "statements.csv"
+    path = MULTICULTURAL_RESOURCES_DIR / "statements.csv"
     if not path.exists():
         return out
     with open(path, encoding="utf-8") as f:
@@ -25,7 +25,7 @@ def _read_statement_to_qid() -> dict[str, str]:
 
 def _read_qid_info() -> dict[str, dict[str, str]]:
     out: dict[str, dict[str, str]] = {}
-    path = MULTICULTURAL_DATA_DIR / "qid_meaning.csv"
+    path = MULTICULTURAL_RESOURCES_DIR / "qid_meaning.csv"
     if not path.exists():
         return out
     with open(path, encoding="utf-8") as f:
@@ -185,16 +185,20 @@ TASK:
 Rate each aspect on a 0.0-1.0 scale using the anchored rubric below. Three dimensions require an explicit "reasoning" field BEFORE the score; this forces evidence-based scoring.
 
 1. CULTURAL VALUE (mu_cultural_value): How strongly is the cultural value from the statement reflected across the dialogue?
+   This is a CROSS-CULTURAL dialogue: speakers may hold opposing views on the value. Score by whether the value is PRESENT in the dialogue (defended, embodied, or actively negotiated by at least one speaker), NOT by whether both speakers agree on it. Apply this rubric regardless of whether the value itself is socially desirable. A speaker who actively defends or embodies a controversial value (e.g., gender hierarchy, religious orthodoxy, restrictive social norms) is still demonstrating its presence — score by EVIDENCE in the dialogue, not by your approval of the value.
    ANCHORS:
-   - 0.0 = dialogue contradicts the value or shows the opposite stance
+   - 0.0 = dialogue contradicts the value or shows the opposite stance from BOTH speakers
    - 0.25 = value is absent; dialogue is neutral or off-topic from it
    - 0.5 = value is alluded to weakly or only by one speaker; not central
-   - 0.75 = value clearly motivates at least one speaker's stance, with concrete textual evidence
+   - 0.75 = value clearly motivates at least one speaker's stance, with concrete textual evidence (even if the other speaker contests it)
+   - 0.85 = value is the central topic of contention; one speaker actively defends or embodies it against opposition
    - 1.0 = value drives the dialogue's content; both speakers act consistently with it; multiple turns reinforce
    FORCED CONTRAST (lower the score even if the dialogue otherwise reads well):
-   - Score ≤ 0.25 if the dialogue could plausibly support the OPPOSITE value
+   - Score ≤ 0.25 if NEITHER speaker holds or demonstrates the value (mere mention or generic discussion is not enough)
    - Score ≤ 0.5 if speakers state the value abstractly but their behavior contradicts it
    - Score ≤ 0.5 if the value is mentioned in only one turn without follow-through
+   ADVERSARIAL EXCEPTION: a dialogue where one speaker authentically defends/embodies the value while the other opposes it should score 0.75-0.85 (NOT below 0.5). Disagreement between speakers is the cross-cultural tension we're measuring, not evidence the value is absent.
+   ATTRIBUTION CHECK (overrides ADVERSARIAL EXCEPTION when triggered): If a speaker's behavior or stance is explicitly attributed in the dialogue to an UNRELATED driver — financial pressure, fear, racism, anxiety, professional survival, family obligation overriding personal stance, etc. — the surface-level behavior does NOT count as embodiment of the named cultural value. Cite the explicit attribution from the dialogue and score ≤ 0.5. The value must be the AUTHENTIC driver, not a coincidental cover.
    REFLECTION (required before scoring ≥ 0.75): cite the specific turn(s) and quote a phrase that demonstrates the value. If you cannot cite a specific turn, score ≤ 0.5.
 {qid_addendum}
 2. CULTURAL SPECIFICITY (mu_cultural_specificity): Does the dialogue clearly reflect the distinct cultural backgrounds of both speakers — in their values, norms, or ways of expressing themselves — rather than sounding generic?
