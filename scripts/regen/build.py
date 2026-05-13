@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""regenerate stage 2 candidates from malformed pairs using stage_1_v2_opus labels."""
+"""build stage 2 candidates + gen shards from a malformed-pairs list, sourcing dialogues from stage_1.jsonl."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ def main(malformed_path: str, source_path: str, regen_dir: str) -> None:
             domain_metadata=s.get("domain_metadata"),
         )
         candidates.append(cand)
-    logger.info("built {} candidates, missing {} (source not found in v2_opus)", len(candidates), missing)
+    logger.info("built {} candidates, missing {} (source not found in stage_1.jsonl)", len(candidates), missing)
 
     with open(cand_path, "w", encoding="utf-8") as f:
         for c in candidates:

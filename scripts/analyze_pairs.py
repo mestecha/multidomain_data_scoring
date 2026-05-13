@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Analyze data/stage_2/pairs.jsonl and print summary statistics."""
+"""Analyze data/stage_2.jsonl and print summary statistics."""
 
 import json
 from collections import defaultdict
 from pathlib import Path
 
-DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "stage_2" / "pairs.jsonl"
+DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "stage_2.jsonl"
 
 # Characterizing dimensions per domain
 CHAR_DIMS = {
