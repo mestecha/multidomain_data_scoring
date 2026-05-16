@@ -13,11 +13,11 @@ This pipeline builds preference pairs for DPO training. It takes raw dialogues f
 ```
 Raw dialogues (4 corpora, ~113k total)
     ↓ sample + deduplicate + self-taught negatives (multicultural)
-52,584 dialogues
+52,583 dialogues
     ↓ Stage 1: GPT judge scores each on its domain's dimensions
-52,584 scored entries (stage_1.jsonl, all 23 dims per entry)
+52,583 scored entries (stage_1.jsonl, all 23 dims per entry)
     ↓ stratified split (seed=42)
-47,462 train  ·  5,122 test
+47,461 train  ·  5,122 test
     ↓                ↓
 Stage 2          Stage 2 (test pairs = ground truths)
     ↓                ↓
@@ -27,9 +27,9 @@ Stage 2          Stage 2 (test pairs = ground truths)
     ↓ 6-label classification (margin > 0.05)
     ↓ flip-pass recovery for opposite-direction variants
     ↓ regen pass for malformed pairs + Opus 4.7 subagent recovery
-160,858 preference pairs (stage_2.jsonl)
+155,731 preference pairs (stage_2.jsonl)
     ↓
-144,767 train pairs  ·  16,091 test pairs (10.0%)
+140,242 train pairs  ·  15,489 test pairs (9.9%)
 ```
 
 The current canonical reflects a v2 rebuild (May 2026) that fixed a role-boundary bug, rescored multicultural, integrated self-taught negatives, and ran three regen passes plus a placeholder repair. See [v2 Rebuild](#v2-rebuild-may-2026) below for details.
@@ -107,7 +107,7 @@ avg score    count    pct
 
 86.6% of entries fall below the 0.4 low-tier threshold. This heavy left skew means nearly all commonsense variants will be improvements — the originals are weak on commonsense and need strengthening.
 
-**Multicultural** has 5 dimensions on a native 0-1 scale. Two are characterizing. The figures below are post-v2-rescore (5-anchor scale + contrast clauses) over the current 14,212 multicultural entries (12,816 original cross-cultural dialogues + 1,396 self-taught negatives):
+**Multicultural** has 5 dimensions on a native 0-1 scale. Two are characterizing. The figures below are post-v2-rescore (5-anchor scale + contrast clauses) over the current 14,211 multicultural entries (12,816 original cross-cultural dialogues + 1,395 self-taught negatives):
 
 | Dimension | Mean | Std | Characterizing |
 |-----------|------|-----|:-:|
@@ -121,17 +121,17 @@ The characterizing average is 0.688 (std 0.184). The original cross-cultural dia
 
 ### Stage 1 Output
 
-52,584 scored entries total after the v2 rebuild (initial 51,264 — 14 batch failures held out — minus 76 placeholder-corrupted dialogues, plus 1,396 retained multicultural self-taught negatives).
+52,583 scored entries total after the v2 rebuild (initial 51,264 — 14 batch failures held out — minus 77 dialogues removed in the rebuild and the subsequent content-quality audit, plus 1,395 retained multicultural self-taught negatives).
 
 | Domain | Total | Train | Test |
 |--------|------:|------:|-----:|
 | Coherence | 12,796 | 11,516 | 1,280 |
 | Empathy | 12,714 | 11,440 | 1,274 |
 | Commonsense | 12,862 | 11,576 | 1,286 |
-| Multicultural | 14,212 | 12,930 | 1,282 |
-| **Total** | **52,584** | **47,462** | **5,122** |
+| Multicultural | 14,211 | 12,929 | 1,282 |
+| **Total** | **52,583** | **47,461** | **5,122** |
 
-Split is 90/10, stratified by domain, seed=42. The 1,396 negatives are train-only.
+Split is 90/10, stratified by domain, seed=42. The 1,395 negatives are train-only.
 
 
 ## Stage 2 — Contrastive Variant Generation
@@ -160,9 +160,9 @@ The resulting tier distribution reflects each domain's score profile:
 | Commonsense | 11,139 (86.6%) | 1,691 (13.1%) | 32 (0.2%) | 0.238 |
 | Multicultural | 851 (6.0%) | 5,409 (38.1%) | 7,952 (56.0%) | 0.688 |
 
-Coherence and multicultural are high-quality corpora — their pairs come mainly from degrading good dialogues. Empathy and commonsense are low-quality — their pairs come from improving weak dialogues. This is the natural consequence of the source data, not a design choice. The multicultural row reflects the post-rescore distribution over 14,212 entries — the rescore plus the lower-scoring negatives shifted more entries into the Low/Medium tiers than the original 12,816-row table showed.
+Coherence and multicultural are high-quality corpora — their pairs come mainly from degrading good dialogues. Empathy and commonsense are low-quality — their pairs come from improving weak dialogues. This is the natural consequence of the source data, not a design choice. The multicultural row reflects the post-rescore distribution over 14,211 entries — the rescore plus the lower-scoring negatives shifted more entries into the Low/Medium tiers than the original 12,816-row table showed.
 
-The direction split confirms this pattern (multicultural is post-rescore over 14,212):
+The direction split confirms this pattern (multicultural is post-rescore over 14,211):
 
 | Domain | Positive (improve) | Negative (degrade) |
 |--------|---:|---:|
@@ -234,17 +234,17 @@ The ±0.20 stability threshold in `target_pass` vs `target_coarse_pass` classifi
 
 ### Evaluation Results
 
-34 eval shards (166,365 entries) in two runs, 5 concurrent jobs each, all completed successfully. The label breakdown below is from the original run; the post-rebuild canonical (`data/stage_2.jsonl`) has 160,858 pairs after dropping 8,214 role-malformed pairs (7,630 replaced via three regen passes, 92.9%) and 314 more in the placeholder-repair patch (313 placeholder-corrupted + 1 score-inversion, 66 replaced). Net change from the original 161,690: −832 pairs.
+34 eval shards (166,365 entries) in two runs, 5 concurrent jobs each, all completed successfully. The label breakdown below is from the original run; the post-rebuild canonical (`data/stage_2.jsonl`) has 155,731 pairs after dropping 8,214 role-malformed pairs (7,630 replaced via three regen passes, 92.9%), 314 in the placeholder-repair patch (313 placeholder-corrupted + 1 score-inversion, 66 replaced), and 5,127 more in the 2026-05-16 content-quality audit pass (4,785 score-ordering inversions + 339 chosen-equal-rejected + 3 exact-duplicate triples). Net change from the original 161,690: −5,959 pairs.
 
 **Original run: 161,690 usable pairs**
 
 | Domain | global_pass | target_pass | target_coarse_pass | global_flip_pass | target_flip_pass | **Usable (orig)** | **Final (v2)** |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| Empathy | 12,724 | 1,377 | 23,729 | 4 | 199 | 38,033 | **37,750** |
-| Coherence | 12,243 | 13,723 | 9,553 | 241 | 1,670 | 37,430 | **37,197** |
-| Multicultural | 11,954 | 8,820 | 11,648 | 300 | 2,470 | 35,192 | **35,009** |
-| Commonsense | 0 | 73 | 50,149 | 0 | 813 | 51,035 | **50,902** |
-| **Total** | **36,921** | **23,993** | **95,079** | **545** | **5,152** | **161,690** | **160,858** |
+| Empathy | 12,724 | 1,377 | 23,729 | 4 | 199 | 38,033 | **37,742** |
+| Coherence | 12,243 | 13,723 | 9,553 | 241 | 1,670 | 37,430 | **37,109** |
+| Multicultural | 11,954 | 8,820 | 11,648 | 300 | 2,470 | 35,192 | **29,988** |
+| Commonsense | 0 | 73 | 50,149 | 0 | 813 | 51,035 | **50,892** |
+| **Total** | **36,921** | **23,993** | **95,079** | **545** | **5,152** | **161,690** | **155,731** |
 
 5,697 usable pairs (3.5%) have `intent_followed=false` (flip_pass pairs with swapped chosen/rejected).
 
@@ -319,7 +319,7 @@ Empathy and commonsense show large positive shifts. Coherence shows mixed shifts
 
 Standard labels: positive-direction → variant is chosen; negative-direction → original is chosen. Flip labels: chosen/rejected are swapped; `contrast.intent_followed` is set to false.
 
-Each pair carries a difficulty label (easy ≥ 0.30, medium 0.15–0.30, hard < 0.15) and an `S2D-NNNNNN` ID. The original run numbered pairs `S2D-000001` through `S2D-161690`; the v2 rebuild dropped the malformed and placeholder pairs (leaving gaps in that range) and appended regenerated pairs from `S2D-153477` onward, so the current canonical runs up to `S2D-169386` with 160,858 pairs. Score ordering is validated on the effective dims before emission via `mean(chosen) > mean(rejected)` — see [Known Risks](#known-risks) for the per-dim implication.
+Each pair carries a difficulty label (easy ≥ 0.30, medium 0.15–0.30, hard < 0.15) and an `S2D-NNNNNN` ID. The original run numbered pairs `S2D-000001` through `S2D-161690`; the v2 rebuild dropped the malformed and placeholder pairs (leaving gaps in that range) and appended regenerated pairs from `S2D-153477` onward, so the current canonical runs up to `S2D-169386` with 155,731 pairs. Score ordering is validated on the effective dims before emission via `mean(chosen) > mean(rejected)` — see [Known Risks](#known-risks) for the per-dim implication.
 
 
 ## Changes
@@ -347,7 +347,7 @@ The original `MULTICULTURAL_PROMPT` had only 0.0/1.0 anchors and no contrast cla
 
 ### Phase 3 — self-taught negatives
 
-Following Wang et al. 2024 (Self-Taught Evaluators), 1,400 negative dialogues were generated for the multicultural domain: an LLM invented a "modified instruction" that shifts one specific axis of the original cross-cultural setup (a different cultural value, a deculturated setting, a non-conversational format, or a non-linear structure) and produced a high-quality response to that modified instruction. The output is a good response for the modified task but a bad response for the original — making it a structurally weak example on the target dim without being gameable by surface patterns. Generation: Claude Sonnet via Agent-tool subagents (cross-model against the gpt-5.1 stage-1 judge), 7 countries × 4 target dims × 50 dialogues. Scoring: gpt-5.1 sync, 8 workers. 1,399 of 1,400 scored successfully; 1,396 were retained in the canonical (3 — `S1D-051436/051458/051462` — were dropped later because the "formal hearing" modified-instruction format produced multi-party transcripts that break the binary user/assistant alternation). Integrated into stage_1 with dialogue IDs `S1D-051265..052663`, source IDs `mu-NS-<COUNTRY>-NNNNNN`, and a nested `negative_sampling` metadata block recording method, generator model, target dim, modified instruction, and source uid.
+Following Wang et al. 2024 (Self-Taught Evaluators), 1,400 negative dialogues were generated for the multicultural domain: an LLM invented a "modified instruction" that shifts one specific axis of the original cross-cultural setup (a different cultural value, a deculturated setting, a non-conversational format, or a non-linear structure) and produced a high-quality response to that modified instruction. The output is a good response for the modified task but a bad response for the original — making it a structurally weak example on the target dim without being gameable by surface patterns. Generation: Claude Sonnet via Agent-tool subagents (cross-model against the gpt-5.1 stage-1 judge), 7 countries × 4 target dims × 50 dialogues. Scoring: gpt-5.1 sync, 8 workers. 1,399 of 1,400 scored successfully; 1,395 were retained in the canonical (3 — `S1D-051436/051458/051462` — were dropped because the "formal hearing" modified-instruction format produced multi-party transcripts that break the binary user/assistant alternation; 1 more — `S1D-051913` — was dropped in the 2026-05-16 audit pass because its "research memo" output used `[redacted]` as a stylistic anonymization device which risked leaking the pattern into assistant responses). Integrated into stage_1 with dialogue IDs `S1D-051265..052663`, source IDs `mu-NS-<COUNTRY>-NNNNNN`, and a nested `negative_sampling` metadata block recording method, generator model, target dim, modified instruction, and source uid.
 
 ### Phase 4 — regen passes (8,214 → 7,630 recovered, 92.9%)
 
@@ -365,7 +365,17 @@ Sum across the three passes: 7,630 of 8,214 (92.9%). The remaining 584 are domin
 
 ### Cross-model QA
 
-A Sonnet subagent audited a stratified 40-pair sample (5 clean + 5 regen per domain). Structural: 40/40 clean. Content: 38/40 usable, 1 hard fail (multicultural `S2D-075642` with score inversion across 3 dims — dropped from the canonical), 15 minor caveats. Regen pairs hold parity with clean pairs. The audit's top-3 flagged patterns were the `cs_coherence` scorer over-rewarding verbatim echo fragments, the `mu_empathy` scorer under-scoring culturally-compressed authentic dialogue, and residual `xxxx` placeholder tokens (now removed). The first two map to the scorer-bias limitation in [`data/audits/qa/known_limitations.md`](data/audits/qa/known_limitations.md), which also documents the mean-validator's per-dim inversions (12% corpus-wide) and an estimated ~2.5% cross-model judgment-disagreement noise floor.
+A Sonnet subagent audited a stratified 40-pair sample (5 clean + 5 regen per domain). Structural: 40/40 clean. Content: 38/40 usable, 1 hard fail (multicultural `S2D-075642` with score inversion across 3 dims — dropped from the canonical), 15 minor caveats. Regen pairs hold parity with clean pairs. The audit's top-3 flagged patterns were the `cs_coherence` scorer over-rewarding verbatim echo fragments, the `mu_empathy` scorer under-scoring culturally-compressed authentic dialogue, and residual `xxxx` placeholder tokens (now removed). The first two map to the scorer-bias limitation in [`data/audits/qa/known_limitations.md`](data/audits/qa/known_limitations.md), which also documents the mean-validator's per-dim inversions (12% corpus-wide at the time of the audit) and an estimated ~2.5% cross-model judgment-disagreement noise floor.
+
+### Content-quality audit (2026-05-16)
+
+A second pass driven by `scripts/full_audit.py` (24 checks) plus an independent `scripts/independent_audit.py` (15 additional checks, including a real Mistral-7B-Instruct-v0.2 `apply_chat_template` smoke test) surfaced three classes of issue the first round had missed:
+
+1. **4,785 multicultural pairs** where `mean(chosen) > mean(rejected)` failed on the effective dims because `scripts/stage_2/update_scores.py` refreshed `evaluation.stage_1_scores` in-place after labels were assigned under v1 scoring, with no re-validation step. 3,574 strict inversions + 1,211 ties. All dropped. `full_audit.py` now includes this check.
+2. **339 pairs** where `chosen == rejected` byte-identically (the mean-based pair validator did not catch them since the LM-judge had given slightly different scores to the same text). Distribution: mu 234, co 88, cs 9, em 8. All dropped.
+3. **3 exact-duplicate `(messages, chosen, rejected)` triples** with distinct pair_ids and 12,788 control-char instances (predominantly U+0019, a mangled curly apostrophe). Duplicates dropped, control chars sanitized in place.
+
+After this pass both audits report 0 violations on the resulting 155,731 pairs.
 
 
 ## Known Risks
@@ -376,7 +386,7 @@ See [`data/audits/qa/known_limitations.md`](data/audits/qa/known_limitations.md)
 
 The label distribution is dominated by target_coarse_pass at 95,079 pairs (59%), which carry valid target signal but noisy non-target behavior. DPO training may want to weight by label. Another 5,697 pairs (3.5%) are flip_pass with reversed contrastive direction, and mu_cultural_value has the highest flip rate at 22%.
 
-Margin threshold sensitivity varies by domain. The Coherence/Empathy/Commonsense columns are from the original run; the Multicultural column is recomputed on the post-v2-rescore canonical (35,009 pairs):
+Margin threshold sensitivity varies by domain. The Coherence/Empathy/Commonsense columns are from the original run; the Multicultural column is recomputed on the post-v2-rescore canonical (29,988 pairs):
 
 | Threshold | Coherence (orig) | Empathy (orig) | Commonsense (orig) | Multicultural (v2) |
 |:-:|---:|---:|---:|---:|
@@ -435,8 +445,8 @@ scripts/
     integrate.py      Merge scored negatives into stage_1.jsonl with new IDs and metadata
 
 data/
-  stage_1.jsonl                       52,584 dialogues — canonical, all 23 dims, includes 1,396 self-taught negatives
-  stage_2.jsonl                       160,858 preference pairs — canonical, post-v2-rebuild
+  stage_1.jsonl                       52,583 dialogues — canonical, all 23 dims, includes 1,395 self-taught negatives
+  stage_2.jsonl                       155,731 preference pairs — canonical, post-v2-rebuild
   stage_1_template.json               Human-readable Stage 1 format reference
   stage_2_template.json               Human-readable Stage 2 pair format reference
   stage_2_prompts_preview.txt         One real generation prompt per domain
@@ -453,14 +463,18 @@ data/
                                         prejudices.csv, cultural_items.json, drivers/prompts_reference.py
   audits/qa/
     known_limitations.md              v2 rebuild's surviving limitations for the RM team
-    malformed_pairs.jsonl             8,214 role-boundary-violating pair_ids the rebuild fixed
     stage_2_audit.md                  Sonnet phase-gate audit report
     stage_2_sample.jsonl              Stratified 40-pair sample used for audit
+    full_audit_independent.md         Independent Opus 4.7 audit (15 additional checks)
     readme_numbers_audit.md           Fact-check report for this README's numbers
     readme_prose_audit.md             Fact-check report for this README's prose/structure
   archive/                            Per-folder .changelog + date-named snapshots
     stage_1/{<date>T<HHMM>.jsonl or <date>_<descr>.jsonl, ...}
+    stage_1/repair/{chunks,output}/   Opus subagent input/output from placeholder fix
     stage_2/{<date>T<HHMM>.jsonl, 20260312_pipeline/, ...}
+    regen/{candidates,variants,main,manifest_*}.jsonl + shards_gen/, shards_eval/,
+           recovery/, opus/{chunks/, ...}, repair/   (v2 rebuild intermediates)
+    qa/                               Historical samples from rescore/regen/pilot runs
     multicultural/{.changelog, 20260217/{countries,manifest.jsonl,shards}/}
 ```
 
@@ -468,8 +482,8 @@ data/
 
 | Split | Stage 1 entries | Stage 2 pairs | Purpose |
 |-------|----------------:|--------------:|---------|
-| Train | 47,462 | 144,767 | DPO training pairs |
-| Test | 5,122 | 16,091 | Ground truth pairs for model evaluation |
-| **Total** | **52,584** | **160,858** | |
+| Train | 47,461 | 140,242 | DPO training pairs |
+| Test | 5,122 | 15,489 | Ground truth pairs for model evaluation |
+| **Total** | **52,583** | **155,731** | |
 
 Both files carry a `split` field. Stage 2 processes all splits — each pair inherits the split from its source dialogue. The self-taught negatives are train-only.
